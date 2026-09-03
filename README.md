@@ -23,7 +23,8 @@ include .harness/harness.mk
 
 `make init` bootstraps the project and CAO; `make update` updates harness
 dependencies; `make up`, `make down`, `make status`, `make architect`, and
-`make doctor` manage or inspect CAO. See [COPY-INTO-REPO.md](COPY-INTO-REPO.md)
+`make doctor` manage or inspect CAO. `make improve` starts an interactive
+Codex maintenance pass from the repository root. See [COPY-INTO-REPO.md](COPY-INTO-REPO.md)
 and [.harness/README.md](.harness/README.md) for details.
 
 `make doctor` validates dependencies and project files, then runs CAO
@@ -32,12 +33,14 @@ may change the active local CAO configuration.
 
 ## Periodic maintenance audit
 
-Run this interactively from any checkout, replacing the focused prompt as
-needed:
+Run this interactively from the harness repository or a copied target:
 
 ```bash
-codex -C /path/to/ardvi-harness 'Audit the harness before editing. Propose and implement only one small, reviewable portability or safety improvement. Run the narrowest relevant checks. Do not add secrets, absolute local paths, global-path coupling, or unrelated refactors.'
+make improve
 ```
 
-Review the diff before committing. The harness must remain self-contained and
-safe to copy into an arbitrary ARDVI repository.
+It reads the repository instructions and harness documentation, analyzes first,
+then makes at most one focused portability or safety improvement. Review the
+diff before committing. It does not touch product code or commit or push
+automatically. The harness must remain self-contained and safe to copy into an
+arbitrary ARDVI repository.

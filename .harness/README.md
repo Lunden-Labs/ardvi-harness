@@ -40,10 +40,17 @@ Optional commands:
 ```bash
 make status
 make architect
+make improve
 make doctor
 ```
 
 `make up` starts the CAO Web UI without opening an interactive agent in the current terminal. Create sessions from the UI or run `make architect`.
+
+`make improve` starts an interactive Codex maintenance pass in the target
+repository. It reads `AGENTS.md` and this harness guide, analyzes the harness
+first, then makes at most one small reviewable portability or safety
+improvement with narrow checks. It does not touch product code or commit or
+push automatically. Review its diff before committing.
 
 ## Bundled current upstreams
 
