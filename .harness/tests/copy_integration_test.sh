@@ -22,7 +22,7 @@ fresh_output="$(run_copy "$fresh")"
 grep -Fqx 'ARDVI_HARNESS_SHORT_TARGETS := 1' "$fresh/Makefile"
 grep -Fqx '.DEFAULT_GOAL := help' "$fresh/Makefile"
 grep -Fqx 'include .harness/harness.mk' "$fresh/Makefile"
-printf -v fresh_next 'cd %q && make init' "$fresh"
+printf -v fresh_next 'cd %q && make harness-init' "$fresh"
 [[ "$fresh_output" == *"$fresh_next"* ]]
 make -C "$fresh" -n init >/dev/null
 ! run_copy "$fresh" >/dev/null 2>&1

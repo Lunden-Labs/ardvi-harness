@@ -28,14 +28,13 @@ git_root="$(cd "$git_root" && pwd -P)"
 [[ ! -e "$target/.harness" && ! -L "$target/.harness" ]] || fail "target already has .harness"
 
 makefile="$target/Makefile"
+command_hint='make harness-init'
 if [[ -e "$makefile" || -L "$makefile" ]]; then
   [[ -f "$makefile" && ! -L "$makefile" ]] || fail "target Makefile must be a regular file"
   [[ -r "$makefile" && -w "$makefile" ]] || fail "target Makefile must be readable and writable"
-  command_hint='make harness-init'
 else
   [[ -w "$target" ]] || fail "target directory must be writable"
   makefile_was_missing=1
-  command_hint='make init'
 fi
 
 cp -a "$harness_dir" "$target/.harness"
