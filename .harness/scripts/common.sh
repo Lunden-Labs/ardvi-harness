@@ -11,6 +11,8 @@ TEMPLATES_DIR="$HARNESS_DIR/templates"
 HARNESS_DATA_DIR="${PROJECT_HARNESS_DATA_DIR:-$HOME/.local/share/project-harness}"
 UPSTREAMS_DIR="$HARNESS_DATA_DIR/upstreams"
 AGENCY_CAO_DIR="$HARNESS_DATA_DIR/generated/agency-agents-cao"
+UPSTREAM_MANIFEST="${HARNESS_UPSTREAM_MANIFEST:-$HARNESS_DIR/upstreams.tsv}"
+UPSTREAM_LOCK="$HARNESS_DATA_DIR/upstreams.lock.tsv"
 
 export PATH="$HOME/.local/bin:$PATH"
 

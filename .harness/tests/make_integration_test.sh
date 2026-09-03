@@ -18,6 +18,7 @@ help_output="$(make -C "$fixture" help 2>&1)"
 [[ "$help_output" == *"product help"* ]]
 [[ "$help_output" != *"overriding recipe"* ]]
 make -C "$fixture" -n harness-init >/dev/null
+make -C "$fixture" -n harness-skill-path SKILL=writing >/dev/null
 ! make -C "$fixture" -n init >/dev/null 2>&1
 make -C "$repo_root" -n init >/dev/null
 

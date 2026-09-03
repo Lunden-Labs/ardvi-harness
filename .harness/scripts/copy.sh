@@ -39,6 +39,22 @@ fi
 
 cp -a "$harness_dir" "$target/.harness"
 
+IFS=$'\t' read -r source_name source_repository source_revision source_policy source_extra < \
+  <(sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' "$harness_dir/harness-source.tsv")
+if [[ -n "${source_extra:-}" || "$source_name" != ardvi-harness \
+  || -z "$source_repository" || -z "$source_revision" \
+  || "$source_policy" != fast-forward-replace-managed ]]; then
+  fail "invalid harness source manifest"
+fi
+if [[ -f "$harness_dir/.managed-state.json" ]]; then
+  python3 "$harness_dir/scripts/manage_harness.py" verify "$harness_dir"
+  source_commit="$(python3 "$harness_dir/scripts/manage_harness.py" show "$harness_dir" commit)"
+else
+  source_commit="$(git -C "$harness_dir" rev-parse HEAD)"
+fi
+python3 "$target/.harness/scripts/manage_harness.py" record \
+  "$target/.harness" "$source_repository" "$source_revision" "$source_commit"
+
 if [[ "${makefile_was_missing:-}" == 1 ]]; then
   if ! (set -o noclobber; printf 'ARDVI_HARNESS_SHORT_TARGETS := 1\n.DEFAULT_GOAL := help\n\ninclude .harness/harness.mk\n' > "$makefile"); then
     if [[ -e "$makefile" || -L "$makefile" ]]; then

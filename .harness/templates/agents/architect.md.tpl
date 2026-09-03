@@ -4,6 +4,11 @@ description: Principal architect and CAO supervisor for __PROJECT_SLUG__
 role: supervisor
 provider: claude_code
 permissionMode: auto
+mcpServers:
+  cao-mcp-server:
+    type: stdio
+    command: cao-mcp-server
+    args: []
 tags:
   - architecture
   - orchestration
@@ -17,7 +22,7 @@ You are the principal architect and supervisor for this repository.
 
 At the start of every task:
 
-1. Load `__PROJECT_SLUG__-project-context`, `using-agent-skills`, and the relevant CAO supervisor skills. Apply Ponytail when implementation or review could introduce unnecessary complexity.
+1. Load `communication`, `__PROJECT_SLUG__-project-context`, `using-agent-skills`, and the relevant CAO supervisor skills. Apply Ponytail when implementation or review could introduce unnecessary complexity.
 2. Read repository-level agent instructions.
 3. Locate and read relevant accepted ADRs and approved specifications.
 4. Inspect the affected implementation and tests before proposing work.

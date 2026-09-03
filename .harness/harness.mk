@@ -2,19 +2,20 @@ ARDVI_HARNESS_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 ARDVI_HARNESS_SCRIPTS_DIR := $(ARDVI_HARNESS_DIR)/scripts
 ARDVI_HARNESS_PROJECT_ROOT := $(abspath $(ARDVI_HARNESS_DIR)/..)
 
-.PHONY: harness-help harness-copy harness-init harness-update harness-up harness-down harness-status harness-architect harness-improve harness-bootstrap harness-register harness-doctor
+.PHONY: harness-help harness-copy harness-init harness-update harness-up harness-down harness-status harness-architect harness-improve harness-bootstrap harness-register harness-doctor harness-skill-path
 
 harness-help:
 	@echo "ARDVI harness"
 	@echo "  make harness-copy [TARGET=/path]  Copy harness into a Git root"
 	@echo "  make harness-init       First-time project and CAO initialization"
-	@echo "  make harness-update     Update CAO, Addy skills, Agency Agents and Ponytail"
+	@echo "  make harness-update     Update CAO and managed external skills/profiles"
 	@echo "  make harness-up         Start the local CAO control plane"
 	@echo "  make harness-down       Stop all CAO sessions and the control plane"
 	@echo "  make harness-status     Show local CAO status"
 	@echo "  make harness-architect  Open the project architect in this terminal"
 	@echo "  make harness-improve    Ask Codex for one focused harness improvement"
 	@echo "  make harness-doctor     Validate harness dependencies and registration"
+	@echo "  make harness-skill-path SKILL=name  Locate communication or a writing skill"
 
 harness-copy:
 	@TARGET="$(TARGET)" bash "$(ARDVI_HARNESS_SCRIPTS_DIR)/copy.sh"
@@ -26,6 +27,8 @@ harness-init:
 	@bash "$(ARDVI_HARNESS_SCRIPTS_DIR)/doctor.sh"
 
 harness-update:
+	@bash "$(ARDVI_HARNESS_SCRIPTS_DIR)/update_harness.sh"
+	@HARNESS_REPO_ROOT="$(ARDVI_HARNESS_PROJECT_ROOT)" python3 "$(ARDVI_HARNESS_SCRIPTS_DIR)/sync_instructions.py"
 	@bash "$(ARDVI_HARNESS_SCRIPTS_DIR)/install.sh"
 	@python3 "$(ARDVI_HARNESS_SCRIPTS_DIR)/register_cao.py"
 
@@ -52,6 +55,9 @@ harness-register:
 
 harness-doctor:
 	@bash "$(ARDVI_HARNESS_SCRIPTS_DIR)/doctor.sh"
+
+harness-skill-path:
+	@bash "$(ARDVI_HARNESS_SCRIPTS_DIR)/skill_path.sh" "$(SKILL)"
 
 ifeq ($(ARDVI_HARNESS_SHORT_TARGETS),1)
 .PHONY: help copy init update up down status architect improve bootstrap register doctor

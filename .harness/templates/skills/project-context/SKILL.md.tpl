@@ -7,7 +7,7 @@ description: Locates and applies repository instructions, accepted ADRs, approve
 
 Before making a plan or changing code:
 
-1. Read root `AGENTS.md` and `CLAUDE.md` when present.
+1. Read root `AGENTS.md` and `CLAUDE.md` when present, then load `communication` for user-facing output.
 2. Locate ADR directories case-insensitively under the repository root and `docs/`. Read every ADR relevant to the task and record its status.
 3. Locate spec/specification directories under the repository root and `docs/`. Read relevant approved specifications.
 4. Read task briefs and architecture documents that constrain the affected area.

@@ -60,18 +60,29 @@ def parse_json_output(raw: str):
     raise ValueError(f"CAO returned a non-JSON value: {raw!r}")
 
 
-def merge_dirs(key: str, paths: list[str]) -> list[str]:
+def merge_dirs(
+    key: str, paths: list[str], *, remove_legacy_harness_skills: bool = False
+) -> tuple[list[str], list[str]]:
     current = parse_json_output(run("cao", "config", "get", key))
     if current is None:
         current = []
     if not isinstance(current, list) or not all(isinstance(item, str) for item in current):
         raise TypeError(f"{key} is not a string array: {current!r}")
 
-    normalized = {str(pathlib.Path(item).expanduser().resolve()) for item in current}
+    removed = []
+    retained = []
+    for item in current:
+        resolved = pathlib.Path(item).expanduser().resolve()
+        if remove_legacy_harness_skills and resolved.parts[-2:] == (".harness", "skills"):
+            removed.append(item)
+        else:
+            retained.append(item)
+
+    normalized = {str(pathlib.Path(item).expanduser().resolve()) for item in retained}
     additions = [path for path in paths if path not in normalized]
-    if additions:
-        run("cao", "config", "set", key, json.dumps([*current, *additions]))
-    return additions
+    if additions or removed:
+        run("cao", "config", "set", key, json.dumps([*retained, *additions]))
+    return additions, removed
 
 
 def main() -> int:
@@ -88,8 +99,10 @@ def main() -> int:
         str(path)
         for path in (
             pathlib.Path(SKILL_DIR),
+            HARNESS_DATA_DIR / "skills",
             UPSTREAMS_DIR / "agent-skills" / "skills",
             UPSTREAMS_DIR / "ponytail" / "skills",
+            UPSTREAMS_DIR / "writing-skills" / "for-agents",
         )
         if path.is_dir()
     ]
@@ -97,12 +110,16 @@ def main() -> int:
         print("No project or external CAO directories exist yet", file=sys.stderr)
         return 1
 
-    added_agents = merge_dirs("agents.extra_dirs", agent_dirs)
-    added_skills = merge_dirs("skills.extra_dirs", skill_dirs)
+    added_agents, _ = merge_dirs("agents.extra_dirs", agent_dirs)
+    added_skills, removed_skills = merge_dirs(
+        "skills.extra_dirs", skill_dirs, remove_legacy_harness_skills=True
+    )
     for path in agent_dirs:
         print(f"CAO agents: {'registered' if path in added_agents else 'already registered'}: {path}")
     for path in skill_dirs:
         print(f"CAO skills: {'registered' if path in added_skills else 'already registered'}: {path}")
+    for path in removed_skills:
+        print(f"CAO skills: removed legacy harness registration: {path}")
     return 0
 
 

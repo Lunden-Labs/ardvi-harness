@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
-for cmd in python3 tmux curl git; do
+for cmd in python3 tmux curl git sha256sum; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Missing dependency: $cmd" >&2
     echo "Ubuntu/Debian: sudo apt-get install -y python3 tmux curl git" >&2
@@ -29,5 +29,6 @@ else
 fi
 
 cao init >/dev/null
+bash "$HARNESS_DIR/scripts/install_managed_skills.sh"
 bash "$HARNESS_DIR/scripts/install_upstreams.sh"
 echo "CAO installed: $(cao --version 2>/dev/null || echo installed)"

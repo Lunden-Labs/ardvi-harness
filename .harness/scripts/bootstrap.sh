@@ -69,6 +69,7 @@ detect_existing_dir() {
 
 create_from_template "$TEMPLATES_DIR/project/AGENTS.md" "$REPO_ROOT/AGENTS.md"
 create_from_template "$TEMPLATES_DIR/project/CLAUDE.md" "$REPO_ROOT/CLAUDE.md"
+HARNESS_REPO_ROOT="$REPO_ROOT" python3 "$HARNESS_DIR/scripts/sync_instructions.py"
 
 if adr_dir="$(detect_existing_dir adr)"; then
   preserved+=("${adr_dir#$REPO_ROOT/}/ (existing ADR directory; untouched)")
