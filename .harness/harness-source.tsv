@@ -1,2 +1,2 @@
 # name	repository	revision	update_policy
-ardvi-harness	git@github.com:Lunden-Labs/ardvi-harness.git	main	fast-forward-replace-managed
+ardvi-harness	https://github.com/Lunden-Labs/ardvi-harness.git	main	fast-forward-replace-managed

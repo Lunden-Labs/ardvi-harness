@@ -74,14 +74,13 @@ Replace the two example paths, then copy and run this block:
 PROJECT_DIR="/absolute/path/to/your-project"
 HARNESS_DIR="/absolute/path/to/ardvi-harness"
 
-git clone git@github.com:Lunden-Labs/ardvi-harness.git "$HARNESS_DIR"
+git clone https://github.com/Lunden-Labs/ardvi-harness.git "$HARNESS_DIR"
 make -C "$HARNESS_DIR" copy TARGET="$PROJECT_DIR"
 make -C "$PROJECT_DIR" harness-init
 make -C "$PROJECT_DIR" harness-up
 ```
 
-The repository is private. The `git clone` command requires GitHub SSH access
-to `Lunden-Labs/ardvi-harness`.
+Use the HTTPS URL so public installations do not require GitHub SSH keys.
 
 The copy command creates `.harness/` in the project. If the project already has
 a regular `Makefile`, the command preserves its content and adds
@@ -114,6 +113,25 @@ Web UI:
 
 ```bash
 cd /absolute/path/to/your-project
+make harness-architect
+```
+
+### Start with a project idea
+
+Pass the first task directly to the architect with `PROMPT`:
+
+```bash
+make harness-architect PROMPT='I want to create a service that receives files, validates them, and exposes a REST API. Inspect the repository, identify missing requirements, select suitable agents, and show me the proposed plan before implementation.'
+```
+
+CAO sends this text as the architect's first message. The architect reads the
+repository instructions, selects suitable existing Codex, Claude Code, or
+Agency Agents profiles, and breaks the request into tasks. The prompt does not
+generate arbitrary profile files during `make init`.
+
+Omit `PROMPT` to open the architect without an initial task:
+
+```bash
 make harness-architect
 ```
 
@@ -160,7 +178,7 @@ Run these commands from the target project:
 |---|---|
 | `make harness-up` | Start the CAO Web UI on `127.0.0.1:9889` |
 | `make harness-status` | Show the server and session status |
-| `make harness-architect` | Start the project architect in the terminal |
+| `make harness-architect PROMPT='...'` | Start the architect with an optional first task |
 | `make harness-update` | Update CAO, the harness, profiles, and all managed skills |
 | `make harness-doctor` | Check dependencies, generated files, skills, and CAO registration |
 | `make harness-down` | Stop every local CAO session and the CAO Web UI |
@@ -186,6 +204,43 @@ The update uses the repositories declared in `.harness/harness-source.tsv` and
 `.harness/upstreams.tsv`. It prints the resolved commit for every source and
 returns a non-zero status if a managed file or checkout was modified locally.
 Project-owned files and custom skills are not overwritten.
+
+## Installed agents and skills
+
+`make harness-init` installs the complete managed catalog. It does not load
+every skill into every agent's context. Agents load the relevant skill when a
+task requires it.
+
+| Source | Installed content |
+|---|---|
+| `addyosmani/agent-skills` | Engineering workflow skills, including planning, testing, review, security, and documentation |
+| `msitarzewski/agency-agents` | Specialist personas converted into CAO-compatible `agency-*` profiles |
+| `DietrichGebert/ponytail` | Minimal implementation and complexity-review skills |
+| `msimchowitz/writing-skills` | The complete `for-agents/` writing catalog and its local dependencies |
+
+The writing catalog includes `writing`, `general-writing`, `humanizer`,
+`writing-cadence`, `better-usage`, `non-autoregressive-writing-pass`, and
+`academic-voice`. The `writing` skill routes a documentation task to the
+smallest relevant editing pipeline. Normal terminal conversation uses the
+lighter `communication` policy and does not run Humanizer automatically.
+
+Locate an installed writing skill with:
+
+```bash
+make harness-skill-path SKILL=communication
+make harness-skill-path SKILL=writing
+make harness-skill-path SKILL=general-writing
+```
+
+Update CAO, the harness, every upstream skill repository, generated Agency
+Agents profiles, and the local revision lock with one command:
+
+```bash
+make harness-update
+```
+
+The update uses fast-forward Git operations and stops on local modifications
+inside a managed checkout. It never silently reuses a partial update.
 
 ## Files added to the project
 

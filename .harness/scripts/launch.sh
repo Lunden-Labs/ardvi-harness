@@ -16,4 +16,8 @@ fi
 
 python3 "$HARNESS_DIR/scripts/register_cao.py"
 cd "$REPO_ROOT"
-exec cao launch --agents "$profile" --provider claude_code
+message=()
+if [[ -n "${PROMPT:-}" ]]; then
+  message+=("$PROMPT")
+fi
+exec cao launch --agents "$profile" --provider claude_code "${message[@]}"

@@ -1,6 +1,7 @@
 ARDVI_HARNESS_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 ARDVI_HARNESS_SCRIPTS_DIR := $(ARDVI_HARNESS_DIR)/scripts
 ARDVI_HARNESS_PROJECT_ROOT := $(abspath $(ARDVI_HARNESS_DIR)/..)
+export PROMPT
 
 .PHONY: harness-help harness-copy harness-init harness-update harness-up harness-down harness-status harness-architect harness-improve harness-bootstrap harness-register harness-doctor harness-skill-path
 
@@ -12,7 +13,7 @@ harness-help:
 	@echo "  make harness-up         Start the local CAO control plane"
 	@echo "  make harness-down       Stop all CAO sessions and the control plane"
 	@echo "  make harness-status     Show local CAO status"
-	@echo "  make harness-architect  Open the project architect in this terminal"
+	@echo "  make harness-architect [PROMPT='...']  Open the architect with an optional first task"
 	@echo "  make harness-improve    Ask Codex for one focused harness improvement"
 	@echo "  make harness-doctor     Validate harness dependencies and registration"
 	@echo "  make harness-skill-path SKILL=name  Locate communication or a writing skill"

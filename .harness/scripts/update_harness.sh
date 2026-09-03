@@ -2,6 +2,15 @@
 set -Eeuo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
+normalize_repository() {
+  local repository="${1%.git}"
+  case "$repository" in
+    git@github.com:*) repository="https://github.com/${repository#git@github.com:}" ;;
+    ssh://git@github.com/*) repository="https://github.com/${repository#ssh://git@github.com/}" ;;
+  esac
+  printf '%s' "$repository"
+}
+
 if [[ "${HARNESS_SKIP_SELF_UPDATE:-0}" == 1 ]]; then
   echo "Harness source update: skipped by HARNESS_SKIP_SELF_UPDATE=1"
   exit 0
@@ -17,7 +26,7 @@ fi
 state="$HARNESS_DIR/.managed-state.json"
 if [[ ! -f "$state" ]]; then
   project_origin="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
-  if [[ "$project_origin" == "$repository" || "$project_origin" == "${repository%.git}" ]]; then
+  if [[ "$(normalize_repository "$project_origin")" == "$(normalize_repository "$repository")" ]]; then
     echo "Harness source checkout: update .harness through normal Git workflow"
     exit 0
   fi

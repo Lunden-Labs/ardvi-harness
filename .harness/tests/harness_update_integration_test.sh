@@ -52,4 +52,14 @@ fi
 grep -Fq 'refusing to overwrite modified harness' "$workspace/conflict.log"
 grep -Fqx 'v2' "$target/.harness/update-marker"
 
+source_checkout="$workspace/source-checkout"
+mkdir -p "$source_checkout"
+git -C "$source_checkout" init -q
+git -C "$source_checkout" remote add origin \
+  git@github.com:Lunden-Labs/ardvi-harness.git
+cp -a "$repo_root/.harness" "$source_checkout/.harness"
+source_output="$(bash "$source_checkout/.harness/scripts/update_harness.sh")"
+grep -Fq 'Harness source checkout: update .harness through normal Git workflow' \
+  <<< "$source_output"
+
 echo "harness update integration: PASS"

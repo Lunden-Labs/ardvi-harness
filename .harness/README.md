@@ -52,7 +52,7 @@ Optional commands:
 
 ```bash
 make status
-make architect
+make architect PROMPT='Describe the project you want to create'
 make improve
 make doctor
 ```
@@ -80,8 +80,13 @@ Run CAO from the project root:
 ```bash
 make init       # once: create project files, install skills, register CAO
 make up         # start http://127.0.0.1:9889
-make architect  # alternatively, launch the architect in this terminal
+make architect PROMPT='Describe the project you want to create'
 ```
+
+`PROMPT` is optional. When present, CAO sends it as the architect's first
+message. The architect inspects the repository, selects suitable registered
+profiles, and proposes the work breakdown required by the prompt. Without it,
+the architect opens normally and waits for terminal input.
 
 When creating an agent in the Web UI, select the project profile and set the
 working directory to the repository root. The Web UI and tmux connect to the
@@ -233,9 +238,9 @@ any deliberately exported CAO memory described below.
 
 Every CAO profile loads the machine-wide managed `communication` skill. It
 keeps normal terminal answers direct and does not run a heavy humanizing pass
-for ordinary conversation. Durable prose—READMEs, documentation, runbooks,
-reports, ADRs, RFCs, and design documents—routes through the upstream `writing`
-router, which loads only the relevant writing skill.
+for ordinary conversation. Durable prose, including READMEs, documentation,
+runbooks, reports, ADRs, RFCs, and design documents, routes through the upstream
+`writing` router, which loads only the relevant writing skill.
 
 The most common routes are:
 
@@ -320,10 +325,9 @@ push automatically. Review its diff before committing.
 
 ## Managed upstreams
 
-The skeleton itself tracks `Lunden-Labs/ardvi-harness` `main` through
+The skeleton tracks the public `Lunden-Labs/ardvi-harness` `main` branch through
 `.harness/harness-source.tsv`. External skills and profiles use the separate
-manifest below. The harness repository is private, so self-update requires SSH
-access to its configured Git origin.
+manifest below. HTTPS clone and self-update do not require GitHub SSH keys.
 
 `make init` and every `make update` clone or fast-forward these repositories:
 
