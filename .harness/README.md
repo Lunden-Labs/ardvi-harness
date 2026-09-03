@@ -22,6 +22,13 @@ This standalone mode enables the short commands below. If the project already
 has a `Makefile`, add only `include .harness/harness.mk` instead of replacing
 it; use namespaced commands such as `make harness-init` to avoid collisions.
 
+To copy this harness into an existing Git repository root, run `make copy`
+from a standalone harness checkout, or `make harness-copy` from an existing
+product Makefile, then enter the target when prompted. `TARGET=/path/to/repository`
+is the optional noninteractive form. It refuses existing `.harness` directories
+and non-regular Makefiles, never overwrites, and prints the correct next init
+command.
+
 ## Primary commands
 
 ```bash

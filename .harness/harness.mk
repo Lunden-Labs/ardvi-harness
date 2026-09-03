@@ -2,10 +2,11 @@ ARDVI_HARNESS_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 ARDVI_HARNESS_SCRIPTS_DIR := $(ARDVI_HARNESS_DIR)/scripts
 ARDVI_HARNESS_PROJECT_ROOT := $(abspath $(ARDVI_HARNESS_DIR)/..)
 
-.PHONY: harness-help harness-init harness-update harness-up harness-down harness-status harness-architect harness-improve harness-bootstrap harness-register harness-doctor
+.PHONY: harness-help harness-copy harness-init harness-update harness-up harness-down harness-status harness-architect harness-improve harness-bootstrap harness-register harness-doctor
 
 harness-help:
 	@echo "ARDVI harness"
+	@echo "  make harness-copy [TARGET=/path]  Copy harness into a Git root"
 	@echo "  make harness-init       First-time project and CAO initialization"
 	@echo "  make harness-update     Update CAO, Addy skills, Agency Agents and Ponytail"
 	@echo "  make harness-up         Start the local CAO control plane"
@@ -14,6 +15,9 @@ harness-help:
 	@echo "  make harness-architect  Open the project architect in this terminal"
 	@echo "  make harness-improve    Ask Codex for one focused harness improvement"
 	@echo "  make harness-doctor     Validate harness dependencies and registration"
+
+harness-copy:
+	@TARGET="$(TARGET)" bash "$(ARDVI_HARNESS_SCRIPTS_DIR)/copy.sh"
 
 harness-init:
 	@bash "$(ARDVI_HARNESS_SCRIPTS_DIR)/bootstrap.sh"
@@ -50,9 +54,10 @@ harness-doctor:
 	@bash "$(ARDVI_HARNESS_SCRIPTS_DIR)/doctor.sh"
 
 ifeq ($(ARDVI_HARNESS_SHORT_TARGETS),1)
-.PHONY: help init update up down status architect improve bootstrap register doctor
+.PHONY: help copy init update up down status architect improve bootstrap register doctor
 
 help: harness-help
+copy: harness-copy
 init: harness-init
 update: harness-update
 up: harness-up

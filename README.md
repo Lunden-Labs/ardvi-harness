@@ -7,11 +7,15 @@ submodule.
 ## Install in a target repository
 
 ```bash
-cp -a ardvi-harness/.harness /path/to/repository/
-cp ardvi-harness/Makefile /path/to/repository/Makefile
-cd /path/to/repository
-make init
+make copy
 ```
+
+Enter the target when prompted, or use `make copy TARGET=/path/to/repository`
+for noninteractive automation. The target must already be an exact Git repository root. A missing Makefile
+gets standalone short aliases; an existing regular Makefile is preserved and
+receives the namespaced harness include once. Then run `make init` or `make
+harness-init`, respectively; use `make harness-up` after installation in an
+existing product Makefile.
 
 If the target already has a `Makefile`, copy `.harness/` and add:
 
