@@ -14,10 +14,13 @@ repository/
 The root `Makefile` contains:
 
 ```make
+ARDVI_HARNESS_SHORT_TARGETS := 1
 include .harness/harness.mk
 ```
 
-If the project already has a `Makefile`, add this include to it instead of replacing the file.
+This standalone mode enables the short commands below. If the project already
+has a `Makefile`, add only `include .harness/harness.mk` instead of replacing
+it; use namespaced commands such as `make harness-init` to avoid collisions.
 
 ## Primary commands
 
@@ -34,6 +37,9 @@ make up
 # Stop CAO sessions and the control plane
 make down
 ```
+
+With an existing product Makefile, prefix each command with `harness-`, for
+example `make harness-init`, `make harness-up`, and `make harness-down`.
 
 Optional commands:
 
