@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -68,6 +69,16 @@ func search(entries []Entry, q string, limit int) []Entry {
 }
 func (c *Catalog) SearchSkills(q string, limit int) []Entry   { return search(c.Skills, q, limit) }
 func (c *Catalog) SearchPersonas(q string, limit int) []Entry { return search(c.Personas, q, limit) }
+func (c *Catalog) ListSkills() []Entry {
+	out := append([]Entry(nil), c.Skills...)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Source == out[j].Source {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Source < out[j].Source
+	})
+	return out
+}
 
 func find(entries []Entry, name string) (Entry, error) {
 	var found *Entry

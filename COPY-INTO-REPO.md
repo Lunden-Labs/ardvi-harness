@@ -1,49 +1,40 @@
-# Project harness bootstrap
+# Add the harness to a repository
 
-## Recommended
-
-From this harness repository, copy into an existing Git repository root:
+Release users should install Ardvi once, then run:
 
 ```bash
-make copy
+cd /path/to/git-repository
+ardvi init
 ```
 
-Enter the target when prompted, or use `make copy TARGET=/path/to/repository`
-for noninteractive automation. It never overwrites `.harness` or `Makefile`.
-A missing Makefile receives short commands; an existing Makefile receives
-namespaced commands such as `make harness-init` and `make harness-up`.
+The release bundle calls the same repository copy target described below.
 
-## Manual: repository without a Makefile
-
-Copy both items into the repository root:
+## From a source checkout
 
 ```bash
-cp -a ardvi-harness/.harness /path/to/repository/
-cp ardvi-harness/Makefile /path/to/repository/Makefile
+git clone https://github.com/Lunden-Labs/ardvi-harness.git
+cd ardvi-harness
+make copy TARGET=/path/to/git-repository
+cd /path/to/git-repository
+make init
 ```
 
-## Manual: repository with an existing Makefile
-
-Copy `.harness` and add one line to the existing root `Makefile`:
+The target must be a Git repository root. Copy refuses an existing `.harness`
+directory and never overwrites a `Makefile`. When a Makefile already exists, it
+adds only:
 
 ```make
 include .harness/harness.mk
 ```
 
-## Commands
+Use namespaced commands if the project's Makefile already owns short targets:
 
 ```bash
-cd /path/to/repository
-
-make init # or: make harness-init with an existing Makefile
-make up # or: make harness-up with an existing Makefile
+make harness-init
+make harness-up
+make harness-skills
+make harness-update
 ```
 
-Later:
-
-```bash
-make update
-make down
-```
-
-The harness discovers the Git repository root automatically. No path or project-name variable is required.
+`make down` and `make harness-down` stop the one machine-wide service used by
+all initialized projects.

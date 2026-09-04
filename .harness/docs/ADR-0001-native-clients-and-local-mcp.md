@@ -1,6 +1,6 @@
 # ADR-0001: Native clients with a local Ardvi MCP hub
 
-- **Status:** Accepted by user direction
+- **Status:** Superseded by ADR-0002
 - **Date:** 2026-09-04
 
 ## Context

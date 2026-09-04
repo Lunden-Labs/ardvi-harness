@@ -15,8 +15,8 @@ if [[ -z "$target" ]]; then
 fi
 
 case "$target" in
-  '~') target="${HOME:?HOME is required to expand ~}" ;;
-  '~/'*) target="${HOME:?HOME is required to expand ~}/${target#\~/}" ;;
+  \~) target="${HOME:?HOME is required to expand ~}" ;;
+  \~/*) target="${HOME:?HOME is required to expand ~}/${target#\~/}" ;;
 esac
 
 [[ -d "$target" ]] || fail "target directory does not exist: $target"

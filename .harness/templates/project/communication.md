@@ -15,3 +15,7 @@ Use Ardvi MCP for project/global messages, short durable memory, resource claims
 and lazy skills/personas. Do not assume a fixed architect, role, provider, or
 starting agent. Codex/Claude native sessions, context compaction, and subagents
 remain provider-owned.
+
+When asked what capabilities are installed, use `skills-list`/`skills_list`.
+Search and load only the skill needed for the current task; do not load the full
+server catalog into context.

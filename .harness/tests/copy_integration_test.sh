@@ -23,6 +23,7 @@ fresh_output="$(run_copy "$fresh")"
 [[ -f "$fresh/.harness/upstreams.tsv" ]]
 [[ -f "$fresh/.harness/mcp/go.mod" ]]
 [[ -f "$fresh/.harness/skills/lets-go/SKILL.md" ]]
+[[ -f "$fresh/.harness/skills/skills-list/SKILL.md" ]]
 grep -Fqx 'ARDVI_HARNESS_SHORT_TARGETS := 1' "$fresh/Makefile"
 grep -Fqx '.DEFAULT_GOAL := help' "$fresh/Makefile"
 grep -Fqx 'include .harness/harness.mk' "$fresh/Makefile"
@@ -31,6 +32,7 @@ printf -v fresh_next 'cd %q && make harness-init' "$fresh"
 make -C "$fresh" -n init >/dev/null
 make -C "$fresh" -n harness-skill-path SKILL=communication >/dev/null
 make -C "$fresh" -n up >/dev/null
+make -C "$fresh" -n skills >/dev/null
 ! run_copy "$fresh" >/dev/null 2>&1
 [[ "$(grep -Fxc 'include .harness/harness.mk' "$fresh/Makefile")" == 1 ]]
 

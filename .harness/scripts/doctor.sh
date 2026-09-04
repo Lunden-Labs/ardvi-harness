@@ -17,27 +17,18 @@ check_command() {
   fi
 }
 
-for cmd in git python3 go curl ps; do
+for cmd in git python3 docker ardvi; do
   check_command "$cmd" required
 done
 check_command codex optional
 check_command claude optional
 
-for path in \
-  "$UPSTREAMS_DIR/agent-skills/skills" \
-  "$UPSTREAMS_DIR/agency-agents" \
-  "$UPSTREAMS_DIR/ponytail/skills" \
-  "$UPSTREAMS_DIR/writing-skills/for-agents"; do
-  if [[ -d "$path" ]]; then
-    printf 'OK       upstream: %s\n' "$path"
-  else
-    printf 'MISSING  upstream: %s\n' "$path"
-    failed=1
-  fi
-done
-
-python3 "$HARNESS_DIR/scripts/validate_writing_skills.py" \
-  "$UPSTREAMS_DIR/writing-skills/for-agents" || failed=1
+if docker compose version >/dev/null 2>&1; then
+  echo "OK       Docker Compose"
+else
+  echo "MISSING  Docker Compose plugin"
+  failed=1
+fi
 
 for path in \
   "$REPO_ROOT/AGENTS.md" \
@@ -46,7 +37,9 @@ for path in \
   "$REPO_ROOT/.codex/config.toml" \
   "$REPO_ROOT/.mcp.json" \
   "$REPO_ROOT/.agents/skills/communication/SKILL.md" \
-  "$REPO_ROOT/.claude/skills/communication/SKILL.md"; do
+  "$REPO_ROOT/.claude/skills/communication/SKILL.md" \
+  "$REPO_ROOT/.agents/skills/skills-list/SKILL.md" \
+  "$REPO_ROOT/.claude/skills/skills-list/SKILL.md"; do
   if [[ -e "$path" ]]; then
     printf 'OK       file: %s\n' "${path#$REPO_ROOT/}"
   else
@@ -55,12 +48,7 @@ for path in \
   fi
 done
 
-for path in \
-  "$HARNESS_DIR/skills/communication/SKILL.md" \
-  "$HARNESS_DATA_DIR/skills/communication/SKILL.md" \
-  "$HARNESS_BIN_DIR/ardvi-mcp" \
-  "$HUB_CATALOG" \
-  "$UPSTREAM_LOCK"; do
+for path in "$HARNESS_DIR/skills/communication/SKILL.md" "$HARNESS_DIR/upstreams.lock.tsv"; do
   if [[ -f "$path" ]]; then
     printf 'OK       managed: %s\n' "$path"
   else
@@ -68,5 +56,18 @@ for path in \
     failed=1
   fi
 done
+
+if ardvi healthcheck >/dev/null 2>&1; then
+  echo "OK       Ardvi MCP health"
+else
+  echo "MISSING  healthy Ardvi MCP service"
+  failed=1
+fi
+if ardvi skills list --json >/dev/null 2>&1; then
+  echo "OK       MCP skill catalog"
+else
+  echo "MISSING  readable MCP skill catalog"
+  failed=1
+fi
 
 exit "$failed"

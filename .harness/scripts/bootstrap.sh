@@ -38,7 +38,7 @@ detect_existing_dir() {
   while IFS= read -r candidate; do
     local base lower
     base="$(basename "$candidate")"
-    lower="${base,,}"
+    lower="$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')"
     if [[ "$kind" == "adr" && ( "$lower" == "adr" || "$lower" == "adrs" ) ]]; then
       printf '%s' "$candidate"
       return 0

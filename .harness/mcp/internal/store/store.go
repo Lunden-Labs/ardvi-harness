@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -67,6 +68,12 @@ type Store struct {
 	state State
 	now   func() time.Time
 }
+
+const (
+	maxProjectSessions = 500
+	maxProjectMessages = 1000
+	maxProjectMemories = 500
+)
 
 func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -202,6 +209,23 @@ func claimKey(project, resource string) string { return project + "\x00" + resou
 func (s *Store) StartSession(project, name, client, task string) (Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	count := 0
+	oldest := ""
+	for id, session := range s.state.Sessions {
+		if session.Project != project {
+			continue
+		}
+		count++
+		if session.State == "ended" && (oldest == "" || session.Updated.Before(s.state.Sessions[oldest].Updated)) {
+			oldest = id
+		}
+	}
+	if count >= maxProjectSessions {
+		if oldest == "" {
+			return Session{}, errors.New("project session quota exceeded")
+		}
+		delete(s.state.Sessions, oldest)
+	}
 	now := s.now().UTC()
 	v := Session{ID: id(), Project: project, Name: name, Client: client, Task: task, State: "running", Updated: now}
 	s.state.Sessions[v.ID] = v
@@ -266,6 +290,20 @@ func (s *Store) Send(project, scope, from, to, thread, body string, ack bool) (M
 	}
 	if scope != "project" && scope != "global" {
 		return Message{}, errors.New("scope must be project or global")
+	}
+	count := 0
+	for _, message := range s.state.Messages {
+		if message.Project == project {
+			count++
+		}
+	}
+	if count >= maxProjectMessages {
+		for i, message := range s.state.Messages {
+			if message.Project == project {
+				s.state.Messages = append(s.state.Messages[:i], s.state.Messages[i+1:]...)
+				break
+			}
+		}
 	}
 	v := Message{ID: id(), Project: project, Scope: scope, From: from, To: to, Thread: thread, Body: body, AckRequired: ack, Created: s.now().UTC()}
 	if v.Thread == "" {
@@ -392,6 +430,23 @@ func (s *Store) PutMemory(project, scope, text string, tags []string, durable bo
 	if scope != "project" && scope != "global" {
 		return Memory{}, errors.New("scope must be project or global")
 	}
+	count := 0
+	oldest := ""
+	for id, memory := range s.state.Memories {
+		if memory.Project != project {
+			continue
+		}
+		count++
+		if (memory.Archived || !memory.Durable) && (oldest == "" || memory.Updated.Before(s.state.Memories[oldest].Updated)) {
+			oldest = id
+		}
+	}
+	if count >= maxProjectMemories {
+		if oldest == "" {
+			return Memory{}, errors.New("project memory quota exceeded; archive or export durable memory")
+		}
+		delete(s.state.Memories, oldest)
+	}
 	m := Memory{ID: id(), Project: project, Scope: scope, Text: text, Tags: tags, Durable: durable, Updated: s.now().UTC()}
 	s.state.Memories[m.ID] = m
 	return m, s.commit()
@@ -422,11 +477,17 @@ func (s *Store) SearchMemory(project, query, scope string, limit int) []Memory {
 	}
 	return out
 }
-func (s *Store) ArchiveMemory(project, id string) error {
+func (s *Store) ArchiveMemory(project, id, scope string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if scope == "" {
+		scope = "project"
+	}
+	if scope != "project" && scope != "global" {
+		return errors.New("scope must be project or global")
+	}
 	m, ok := s.state.Memories[id]
-	if !ok || (m.Scope == "project" && m.Project != project) {
+	if !ok || m.Project != project || m.Scope != scope {
 		return errors.New("memory not found")
 	}
 	m.Archived = true
@@ -449,8 +510,27 @@ func (s *Store) ExportMemory(project string) []Memory {
 func (s *Store) ImportMemory(project string, items []Memory) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(items) > 10000 {
-		return errors.New("memory import exceeds 10000 items")
+	if len(items) > maxProjectMemories {
+		return fmt.Errorf("memory import exceeds %d items", maxProjectMemories)
+	}
+	existing := 0
+	projectIDs := map[string]bool{}
+	for _, memory := range s.state.Memories {
+		if memory.Project == project {
+			existing++
+			if memory.Scope == "project" {
+				projectIDs[memory.ID] = true
+			}
+		}
+	}
+	added := 0
+	for _, memory := range items {
+		if memory.ID == "" || !projectIDs[memory.ID] {
+			added++
+		}
+	}
+	if existing+added > maxProjectMemories {
+		return errors.New("project memory quota exceeded")
 	}
 	for _, m := range items {
 		if len(m.Text) == 0 || len(m.Text) > 65536 || len(m.Tags) > 20 {
@@ -479,8 +559,11 @@ func ReadExport(path string) ([]Memory, error) {
 		return nil, e
 	}
 	defer f.Close()
+	return ReadExportFrom(f)
+}
+func ReadExportFrom(reader io.Reader) ([]Memory, error) {
 	out := []Memory{}
-	scan := bufio.NewScanner(f)
+	scan := bufio.NewScanner(reader)
 	scan.Buffer(make([]byte, 64*1024), 1024*1024)
 	total := 0
 	for scan.Scan() {
@@ -492,8 +575,8 @@ func ReadExport(path string) ([]Memory, error) {
 			return nil, errors.New("memory import exceeds 64 MiB")
 		}
 		var m Memory
-		if e = json.Unmarshal(scan.Bytes(), &m); e != nil {
-			return nil, e
+		if err := json.Unmarshal(scan.Bytes(), &m); err != nil {
+			return nil, err
 		}
 		out = append(out, m)
 	}
@@ -507,12 +590,18 @@ func WriteExport(path string, items []Memory) error {
 	if e != nil {
 		return e
 	}
-	enc := json.NewEncoder(f)
-	for _, m := range items {
-		if e = enc.Encode(m); e != nil {
-			f.Close()
-			return e
-		}
+	if e = WriteExportTo(f, items); e != nil {
+		f.Close()
+		return e
 	}
 	return f.Close()
+}
+func WriteExportTo(writer io.Writer, items []Memory) error {
+	enc := json.NewEncoder(writer)
+	for _, m := range items {
+		if err := enc.Encode(m); err != nil {
+			return err
+		}
+	}
+	return nil
 }

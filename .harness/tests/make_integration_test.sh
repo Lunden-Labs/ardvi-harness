@@ -21,9 +21,11 @@ help_output="$(make -C "$fixture" help 2>&1)"
 make -C "$fixture" -n harness-init >/dev/null
 make -C "$fixture" -n harness-skill-path SKILL=writing >/dev/null
 make -C "$fixture" -n harness-up >/dev/null
+make -C "$fixture" -n harness-skills >/dev/null
 make -C "$fixture" -n harness-down >/dev/null
 make -C "$fixture" -n harness-memory-export OUTPUT=.ardvi/memory.jsonl >/dev/null
 ! make -C "$fixture" -n init >/dev/null 2>&1
 make -C "$repo_root" -n init >/dev/null
+make -C "$repo_root" -n skills >/dev/null
 
 echo "make integration: PASS"

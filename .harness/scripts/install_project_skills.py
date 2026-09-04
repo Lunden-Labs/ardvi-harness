@@ -10,12 +10,12 @@ import shutil
 import sys
 
 
-def tree_hash(path: pathlib.Path) -> str:
+def tree_hash(path: pathlib.Path, exclude: pathlib.Path | None = None) -> str:
     digest = hashlib.sha256()
     for file in sorted(path.rglob("*")):
         if file.is_symlink():
             raise RuntimeError(f"managed skill must not contain symlinks: {file}")
-        if not file.is_file():
+        if not file.is_file() or file == exclude:
             continue
         digest.update(str(file.relative_to(path)).encode())
         digest.update(file.read_bytes())
@@ -31,11 +31,7 @@ def install(source: pathlib.Path, target: pathlib.Path) -> str:
         if not state.exists():
             raise RuntimeError(f"refusing to replace unmanaged skill: {target}")
         recorded = state.read_text().strip()
-        digest = hashlib.sha256()
-        for file in sorted(p for p in target.rglob("*") if p.is_file() and p != state):
-            digest.update(str(file.relative_to(target)).encode())
-            digest.update(file.read_bytes())
-        if digest.hexdigest() != recorded:
+        if tree_hash(target, state) != recorded:
             raise RuntimeError(f"refusing to overwrite modified managed skill: {target}")
         if recorded == wanted:
             return "current"

@@ -16,8 +16,8 @@ codex   # or: claude
 ```
 
 `make init PROMPT='...'` may seed `tasks/NEXT.md` in a new project. It never
-starts an agent. `make up` and `make down` start and stop only the shared MCP
-service; they never manage Codex or Claude processes.
+starts an agent. `make up` ensures the machine-wide Docker service is running;
+`make down` stops it for every project. Neither manages Codex or Claude.
 
 ## Project integration
 
@@ -41,7 +41,8 @@ Tools:
 - messages: `message_send`, `inbox_read`, `message_ack`, `thread_read`;
 - claims: `claims_list`, `claim_acquire`, `claim_release`;
 - memory: `memory_put`, `memory_search`, `memory_archive`;
-- catalog: `skills_search`, `skill_read`, `personas_search`, `persona_read`.
+- catalog: `skills_list`, `skills_search`, `skill_read`, `personas_search`,
+  `persona_read`.
 
 All list/search calls are bounded. Claims are atomic within the one server
 process and expire by TTL. Session end releases that session's claims. Durable
@@ -49,7 +50,7 @@ tasks and status remain in repository files rather than a second task database.
 
 ## Persistence
 
-The hub stores one bounded JSON state snapshot under the XDG data directory.
+The hub stores one bounded JSON state snapshot in Docker volume `ardvi-data`.
 Each write is serialized, synced to a temporary file, and atomically renamed.
 Malformed or oversized state fails startup visibly. An exclusive process lock
 prevents two writers.
@@ -59,20 +60,21 @@ Global memory is never exported into a project repository.
 
 ## Skills
 
-Harness-owned skills are `communication`, `lets-go`, `session-end`, and
-`project-context`. Managed upstreams remain declarative in `upstreams.tsv`.
-`make init` installs them and `make update` stages, validates, and activates new
-revisions without exposing a partial catalog. The server returns a skill entry
-point first and reads supporting files only on request. Arbitrary filesystem
-reads and path traversal are rejected.
+Harness-owned skills are `communication`, `writing`, `lets-go`, `session-end`,
+`project-context`, and `skills-list`. `upstreams.tsv` records update branches;
+`upstreams.lock.tsv` pins release commits. Complete managed trees are built
+into the image and `make update` activates a new digest only after health
+validation. The server returns metadata first and reads supporting files only
+on request. Arbitrary filesystem reads and path traversal are rejected.
 
-Codex and Claude receive small native entry skills for `communication`,
-`writing`, `lets-go`, and `session-end`; the complete catalog stays lazy.
+Codex and Claude receive the six small native entry skills; the complete
+catalog stays lazy on MCP.
 Agency Agents content is exposed as personas, without assigning a default role.
 
 ## Security boundaries
 
-- The only supported listener is loopback. Non-loopback startup is rejected.
+- Compose publishes the container only on host loopback. A non-loopback server
+  listener requires the explicit container environment and flag.
 - Non-local `Host` and `Origin` values are rejected.
 - Request bodies, identifiers, limits, paths, and stored record sizes are
   validated at the boundary.
@@ -88,7 +90,8 @@ Agency Agents content is exposed as personas, without assigning a default role.
 5. Messages, sessions, claims, and memory survive a server restart.
 6. Project memory export/import round-trips without global data.
 7. Every managed skill and required relative dependency can be loaded.
-8. A failed upstream update leaves the previous catalog active and exits nonzero.
+8. A failed image/catalog update leaves the previous configuration active and
+   exits nonzero.
 9. No CAO, tmux, provider launcher, or fixed-role runtime remains.
 10. Shell checks, Go tests including race tests, and harness integration tests pass.
 

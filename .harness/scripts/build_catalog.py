@@ -26,7 +26,7 @@ def frontmatter(path: pathlib.Path) -> tuple[str, str]:
 
 def main() -> int:
     harness = pathlib.Path(__file__).resolve().parent.parent
-    data = pathlib.Path(os.environ.get("PROJECT_HARNESS_DATA_DIR", pathlib.Path.home() / ".local/share/project-harness"))
+    data = pathlib.Path(os.environ.get("ARDVI_CATALOG_DATA_DIR", pathlib.Path.home() / ".local/share/ardvi/catalog"))
     scan_upstreams = pathlib.Path(os.environ.get("HARNESS_CATALOG_SCAN_UPSTREAMS", data / "upstreams"))
     root_upstreams = pathlib.Path(os.environ.get("HARNESS_CATALOG_ROOT_UPSTREAMS", data / "upstreams"))
     skills: list[dict[str, str]] = []

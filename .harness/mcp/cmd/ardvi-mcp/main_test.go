@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -27,7 +29,11 @@ func TestStreamableHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	server := hub.New(s, &catalog.Catalog{Version: 1})
+	skills := make([]catalog.Entry, 101)
+	for i := range skills {
+		skills[i] = catalog.Entry{Name: fmt.Sprintf("skill-%03d", i), Source: "fixture", Entry: "SKILL.md"}
+	}
+	server := hub.New(s, &catalog.Catalog{Version: 1, Skills: skills, Revisions: map[string]string{"fixture": "abc123"}}, "test")
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true}))
 	ts := httptest.NewServer(mux)
@@ -43,10 +49,47 @@ func TestStreamableHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools.Tools) != 17 {
+	if len(tools.Tools) != 18 {
 		t.Fatalf("got %d tools", len(tools.Tools))
 	}
-	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "session_start", Arguments: map[string]any{"name": "test", "client": "codex"}})
+	foundSkillsList := false
+	for _, tool := range tools.Tools {
+		if tool.Name == "skills_list" {
+			foundSkillsList = true
+			break
+		}
+	}
+	if !foundSkillsList {
+		t.Fatal("skills_list tool is missing")
+	}
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "skills_list", Arguments: map[string]any{}})
+	if err != nil || result.IsError {
+		t.Fatalf("skills_list failed: %v %#v", err, result)
+	}
+	b, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var first struct {
+		Skills []listedSkill `json:"skills"`
+		Next   string        `json:"next_cursor"`
+	}
+	if err = json.Unmarshal(b, &first); err != nil || len(first.Skills) != 100 || first.Next == "" {
+		t.Fatalf("bad first skills page: %v %#v", err, first)
+	}
+	result, err = session.CallTool(context.Background(), &mcp.CallToolParams{Name: "skills_list", Arguments: map[string]any{"cursor": first.Next}})
+	if err != nil || result.IsError {
+		t.Fatalf("second skills_list failed: %v %#v", err, result)
+	}
+	b, _ = json.Marshal(result.StructuredContent)
+	var second struct {
+		Skills []listedSkill `json:"skills"`
+		Next   string        `json:"next_cursor"`
+	}
+	if err = json.Unmarshal(b, &second); err != nil || len(second.Skills) != 1 || second.Next != "" {
+		t.Fatalf("bad second skills page: %v %#v", err, second)
+	}
+	result, err = session.CallTool(context.Background(), &mcp.CallToolParams{Name: "session_start", Arguments: map[string]any{"name": "test", "client": "codex"}})
 	if err != nil || result.IsError {
 		t.Fatalf("session_start failed: %v %#v", err, result)
 	}

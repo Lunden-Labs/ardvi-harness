@@ -50,7 +50,6 @@ def codex(root: pathlib.Path, project_id: str) -> tuple[str, pathlib.Path, str]:
     body = (
         f'[mcp_servers.ardvi]\nurl = "{URL}"\n'
         f'http_headers = {{ X-Ardvi-Project = "{project_id}" }}\n'
-        'default_tools_approval_mode = "writes"\n'
     )
     checksum = hashlib.sha256(body.encode()).hexdigest()
     block = f"{START} sha256={checksum}\n{body}{END}\n"

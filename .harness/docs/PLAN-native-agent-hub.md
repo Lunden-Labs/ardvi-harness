@@ -32,3 +32,10 @@
     Mail, fixed roles, or provider launch wrappers remain; reviewer finds no
     blocking correctness/security issue.
   - Verify: repository search, diff review, full suite.
+
+- [x] Machine-wide release packaging
+  - Acceptance: one digest-pinned Compose service serves all project UUIDs;
+    release images contain complete pinned catalogs; host archives initialize
+    projects without a Go toolchain; `skills_list` and CLI enumeration agree.
+  - Verify: lifecycle/unit tests, image build, release manifest validation, and
+    temporary project integration tests.

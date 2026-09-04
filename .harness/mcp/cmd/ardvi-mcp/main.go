@@ -20,7 +20,7 @@ import (
 )
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: ardvi-mcp serve [flags] | memory-export [flags] | memory-import [flags]")
+	fmt.Fprintln(os.Stderr, "usage: ardvi install | init | update | service ensure|status|stop | skills list | serve")
 }
 func localHost(value string) bool {
 	host, _, err := net.SplitHostPort(value)
@@ -51,10 +51,11 @@ func serve(args []string) error {
 	listen := f.String("listen", "127.0.0.1:8765", "loopback listen address")
 	data := f.String("data", "", "data directory")
 	catalogPath := f.String("catalog", "", "catalog path")
+	allowNonLoopback := f.Bool("allow-non-loopback", false, "allow container-internal non-loopback listener")
 	if err := f.Parse(args); err != nil {
 		return err
 	}
-	if !localHost(*listen) {
+	if !localHost(*listen) && (!*allowNonLoopback || os.Getenv("ARDVI_CONTAINER") != "1") {
 		return fmt.Errorf("listen address must be loopback")
 	}
 	if *data == "" || *catalogPath == "" {
@@ -69,7 +70,7 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
-	server := hub.New(s, c)
+	server := hub.New(s, c, version)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -104,11 +105,19 @@ func memory(args []string, importing bool) error {
 	}
 	defer s.Close()
 	if importing {
-		items, err := store.ReadExport(*file)
+		var items []store.Memory
+		if *file == "-" {
+			items, err = store.ReadExportFrom(os.Stdin)
+		} else {
+			items, err = store.ReadExport(*file)
+		}
 		if err != nil {
 			return err
 		}
 		return s.ImportMemory(*project, items)
+	}
+	if *file == "-" {
+		return store.WriteExportTo(os.Stdout, s.ExportMemory(*project))
 	}
 	return store.WriteExport(*file, s.ExportMemory(*project))
 }
@@ -119,6 +128,26 @@ func main() {
 	}
 	var err error
 	switch os.Args[1] {
+	case "install":
+		err = installRuntime(os.Args[2:], false)
+	case "init":
+		err = projectInit(os.Args[2:])
+	case "project":
+		if len(os.Args) < 3 || os.Args[2] != "init" {
+			usage()
+			os.Exit(2)
+		}
+		err = projectInit(os.Args[3:])
+	case "update":
+		err = installRuntime(os.Args[2:], true)
+	case "service":
+		err = serviceCommand(os.Args[2:])
+	case "skills":
+		err = skillsCommand(os.Args[2:])
+	case "memory":
+		err = memoryCommand(os.Args[2:])
+	case "healthcheck":
+		err = healthcheck(os.Args[2:])
 	case "serve":
 		err = serve(os.Args[2:])
 	case "memory-export":
@@ -126,7 +155,7 @@ func main() {
 	case "memory-import":
 		err = memory(os.Args[2:], true)
 	case "version", "--version":
-		fmt.Println("ardvi-mcp 0.1.0")
+		fmt.Printf("ardvi %s (%s)\n", version, commit)
 		return
 	default:
 		usage()

@@ -2,8 +2,10 @@ package hub
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -100,7 +102,8 @@ type memorySearchIn struct {
 	Limit int    `json:"limit,omitempty"`
 }
 type memoryArchiveIn struct {
-	ID string `json:"id"`
+	ID    string `json:"id"`
+	Scope string `json:"scope,omitempty"`
 }
 type memoriesOut struct {
 	Memories []store.Memory `json:"memories"`
@@ -111,6 +114,22 @@ type searchIn struct {
 }
 type catalogOut struct {
 	Entries []catalog.Entry `json:"entries"`
+}
+type skillSummary struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Source      string `json:"source"`
+}
+type skillsListOut struct {
+	Skills    []skillSummary    `json:"skills"`
+	Revisions map[string]string `json:"revisions"`
+	Next      string            `json:"next_cursor,omitempty"`
+}
+type skillsListIn struct {
+	Source string `json:"source,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+	Cursor string `json:"cursor,omitempty"`
 }
 type skillReadIn struct {
 	Name string `json:"name"`
@@ -124,8 +143,8 @@ type contentOut struct {
 	Content catalog.Content `json:"content"`
 }
 
-func New(s *store.Store, c *catalog.Catalog) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: "ardvi-mcp", Version: "0.1.0"}, nil)
+func New(s *store.Store, c *catalog.Catalog, version string) *mcp.Server {
+	server := mcp.NewServer(&mcp.Implementation{Name: "ardvi-mcp", Version: version}, nil)
 	mcp.AddTool(server, rw("session_start", "Register this native Codex or Claude session."), func(ctx context.Context, req *mcp.CallToolRequest, in sessionStartIn) (*mcp.CallToolResult, store.Session, error) {
 		p, e := project(req)
 		if e != nil {
@@ -251,7 +270,7 @@ func New(s *store.Store, c *catalog.Catalog) *mcp.Server {
 	mcp.AddTool(server, rw("memory_archive", "Archive a visible memory item without deleting history."), func(ctx context.Context, req *mcp.CallToolRequest, in memoryArchiveIn) (*mcp.CallToolResult, empty, error) {
 		p, e := project(req)
 		if e == nil {
-			e = s.ArchiveMemory(p, in.ID)
+			e = s.ArchiveMemory(p, in.ID, in.Scope)
 		}
 		return nil, empty{}, e
 	})
@@ -264,6 +283,49 @@ func New(s *store.Store, c *catalog.Catalog) *mcp.Server {
 			return nil, catalogOut{}, errors.New("query is too long")
 		}
 		return nil, catalogOut{c.SearchSkills(in.Query, in.Limit)}, nil
+	})
+	mcp.AddTool(server, ro("skills_list", "List installed skills and exact managed upstream revisions. Follow next_cursor to enumerate the full catalog."), func(ctx context.Context, req *mcp.CallToolRequest, in skillsListIn) (*mcp.CallToolResult, skillsListOut, error) {
+		if len(in.Source) > 120 {
+			return nil, skillsListOut{}, errors.New("source is too long")
+		}
+		offset := 0
+		if in.Cursor != "" {
+			decoded, e := base64.RawURLEncoding.DecodeString(in.Cursor)
+			if e != nil {
+				return nil, skillsListOut{}, errors.New("invalid cursor")
+			}
+			offset, e = strconv.Atoi(string(decoded))
+			if e != nil || offset < 0 {
+				return nil, skillsListOut{}, errors.New("invalid cursor")
+			}
+		}
+		entries := c.ListSkills()
+		filtered := entries[:0]
+		for _, entry := range entries {
+			if in.Source == "" || entry.Source == in.Source {
+				filtered = append(filtered, entry)
+			}
+		}
+		if offset > len(filtered) {
+			return nil, skillsListOut{}, errors.New("invalid cursor")
+		}
+		limit := in.Limit
+		if limit <= 0 || limit > 100 {
+			limit = 100
+		}
+		end := offset + limit
+		if end > len(filtered) {
+			end = len(filtered)
+		}
+		skills := make([]skillSummary, 0, end-offset)
+		for _, entry := range filtered[offset:end] {
+			skills = append(skills, skillSummary{ID: entry.Source + ":" + entry.Name, Name: entry.Name, Description: entry.Description, Source: entry.Source})
+		}
+		next := ""
+		if end < len(filtered) {
+			next = base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(end)))
+		}
+		return nil, skillsListOut{Skills: skills, Revisions: c.Revisions, Next: next}, nil
 	})
 	mcp.AddTool(server, ro("skill_read", "Read a skill entry point or a supporting file inside its managed checkout."), func(ctx context.Context, req *mcp.CallToolRequest, in skillReadIn) (*mcp.CallToolResult, contentOut, error) {
 		if _, e := project(req); e != nil {

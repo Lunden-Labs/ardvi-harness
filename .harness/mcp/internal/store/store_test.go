@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,6 +131,21 @@ func TestMemoryExportMaximumRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMemoryExportStreamRoundTrip(t *testing.T) {
+	items := []Memory{{ID: "one", Project: "project-a", Scope: "project", Text: "handoff", Durable: true}}
+	var output bytes.Buffer
+	if err := WriteExportTo(&output, items); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadExportFrom(&output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "one" || got[0].Text != "handoff" {
+		t.Fatalf("stream round-trip failed: %#v", got)
+	}
+}
+
 func TestCorruptStateFailsVisibly(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := Open(dir)
@@ -139,5 +155,48 @@ func TestCorruptStateFailsVisibly(t *testing.T) {
 	os.WriteFile(path, []byte(`{"broken"`), 0600)
 	if _, err := Open(dir); err == nil {
 		t.Fatal("corrupt state accepted")
+	}
+}
+
+func TestProjectCannotArchiveAnotherProjectsGlobalMemory(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	memory, err := s.PutMemory("project-a", "global", "shared but owned by A", nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.ArchiveMemory("project-b", memory.ID, "global"); err == nil {
+		t.Fatal("another project archived global memory")
+	}
+	if err = s.ArchiveMemory("project-a", memory.ID, ""); err == nil {
+		t.Fatal("global memory archived without explicit global scope")
+	}
+	if got := s.SearchMemory("project-a", memory.Text, "global", 10); len(got) != 1 {
+		t.Fatalf("global memory disappeared: %#v", got)
+	}
+	if err = s.ArchiveMemory("project-a", memory.ID, "global"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProjectMemoryQuotaDoesNotEvictDurableMemory(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	now := time.Now()
+	for i := 0; i < maxProjectMemories; i++ {
+		key := id()
+		s.state.Memories[key] = Memory{ID: key, Project: "project-a", Scope: "project", Text: "keep", Durable: true, Updated: now}
+	}
+	if _, err = s.PutMemory("project-a", "project", "overflow", nil, true); err == nil {
+		t.Fatal("durable project memory quota was not enforced")
+	}
+	if len(s.state.Memories) != maxProjectMemories {
+		t.Fatal("durable memory was evicted")
 	}
 }

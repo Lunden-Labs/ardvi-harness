@@ -1,186 +1,317 @@
-# Ardvi project harness
+# Ardvi harness
 
-Ardvi adds shared communication, memory, skills, and resource claims to normal
-Codex and Claude projects. It does not replace either application and does not
-start agents for you.
+Ardvi lets ordinary Codex and Claude Code sessions share messages, memory,
+resource claims, skills, and optional agent personas. You keep using the normal
+Codex or Claude interface. Ardvi does not start agents and has no web UI, tmux,
+or provider wrapper.
 
-## Install in a project
+One Docker container runs for the whole computer. Project A and project B use
+the same service but receive different UUID namespaces, so their project data
+does not mix.
 
-The target must already be a Git repository. Clone this repository once, then
-copy the harness:
+## Install once on a computer
 
-```bash
-git clone https://github.com/Lunden-Labs/ardvi-harness.git
-cd ardvi-harness
-make copy TARGET=/path/to/your-project
-cd /path/to/your-project
-make init
-```
+You need:
 
-`make init` installs the local MCP server and all managed skills, creates a
-stable project identity, and configures both clients. Existing `AGENTS.md`,
-`CLAUDE.md`, docs, specs, ADRs, custom skills, and non-Ardvi MCP settings are
-preserved.
+- Docker Desktop, or Docker Engine with `docker compose`;
+- Git, Make, Bash, and Python 3.10 or newer;
+- Codex, Claude Code, or both, already installed and authenticated.
 
-To give the first agent a task during initialization:
+Open the repository's **Releases** page and download the archive for your
+computer:
 
-```bash
-make init PROMPT='Inspect this repository and propose the first implementation plan.'
-```
+| Computer | Archive |
+| --- | --- |
+| Linux, Intel/AMD | `ardvi_linux_amd64.tar.gz` |
+| Linux, ARM64 | `ardvi_linux_arm64.tar.gz` |
+| macOS, Intel | `ardvi_darwin_amd64.tar.gz` |
+| macOS, Apple silicon | `ardvi_darwin_arm64.tar.gz` |
 
-The prompt is written once to `tasks/NEXT.md`. It is not sent to a provider and
-an existing `tasks/NEXT.md` is never overwritten. For a long prompt:
+Linux Intel/AMD example:
 
 ```bash
-make init PROMPT_FILE=/path/to/prompt.md
+curl -fLO https://github.com/Lunden-Labs/ardvi-harness/releases/latest/download/ardvi_linux_amd64.tar.gz
+mkdir -p ardvi-install
+tar -xzf ardvi_linux_amd64.tar.gz -C ardvi-install
+./ardvi-install/install.sh
 ```
+
+Apple silicon example:
+
+```bash
+curl -fLO https://github.com/Lunden-Labs/ardvi-harness/releases/latest/download/ardvi_darwin_arm64.tar.gz
+mkdir -p ardvi-install
+tar -xzf ardvi_darwin_arm64.tar.gz -C ardvi-install
+./ardvi-install/install.sh
+```
+
+The installer copies `ardvi` to `~/.local/bin`, installs the harness bundle,
+pulls the exact release image by digest, and starts the shared service. If your
+shell cannot find `ardvi`, reopen the terminal or run:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Check the installation:
+
+```bash
+ardvi version
+ardvi service status
+ardvi skills list
+```
+
+## Add Ardvi to a project
+
+The directory must be a Git repository. For a new empty project:
+
+```bash
+mkdir my-project
+cd my-project
+git init
+ardvi init
+```
+
+For an existing project:
+
+```bash
+cd /path/to/existing-project
+ardvi init
+```
+
+You can initialize a project without changing directories:
+
+```bash
+ardvi init --path /path/to/existing-project
+```
+
+To leave the first task for the agent:
+
+```bash
+ardvi init --path /path/to/project \
+  --prompt 'Inspect this repository and prepare an implementation plan.'
+```
+
+For a long task description:
+
+```bash
+ardvi init --path /path/to/project --prompt-file /path/to/task.md
+```
+
+The same first-task feature is available through Make inside a copied harness:
+
+```bash
+make init PROMPT='Inspect this repository and prepare an implementation plan.'
+make init PROMPT_FILE=/path/to/task.md
+```
+
+The prompt is written once to `tasks/NEXT.md`; it is not sent to Codex or
+Claude automatically. Existing `AGENTS.md`, `CLAUDE.md`, docs, ADRs, specs,
+custom skills, and non-Ardvi MCP settings are preserved. A repeated `make init`
+is safe and does not replace project-owned files.
 
 ## Daily use
 
-Start the shared local service:
+Enter the project, ensure the shared service is running, then start your normal
+client:
 
 ```bash
+cd /path/to/project
 make up
-make status
+codex
 ```
 
-Open the client you already use, from the project directory:
+or:
 
 ```bash
-codex
-# or
+cd /path/to/project
+make up
 claude
 ```
 
-Codex reads `AGENTS.md`, `.codex/config.toml`, and `.agents/skills/`. Claude
-reads `CLAUDE.md`, `.mcp.json`, and `.claude/skills/`. `CLAUDE.md` imports
-`AGENTS.md`, so both clients receive the same project policy.
-
-At the start of a session, ask the agent to use `lets-go`. It registers the
-native session, reads relevant messages and memory, and continues from the
-repository state. Before clearing context or handing work to another agent, ask
-it to use `session-end`.
-
-Examples:
+Give the agent this first instruction:
 
 ```text
 Use lets-go and continue the task in tasks/NEXT.md.
+```
 
-Send the SDK agent a project message with the API decision.
+On the first run, trust the Git project when Codex asks and approve the
+project MCP server when Claude asks. Restart the client after `make init` if
+the Ardvi tools are not visible yet.
 
-Claim src/auth while you edit it, then release the claim.
+Before clearing context or handing work to another session:
 
-Save this compatibility constraint as durable project memory.
-
+```text
 Use session-end and leave a concise handoff.
 ```
 
-Each project has its own UUID in `.ardvi/project.json`, so several projects can
-use one server without mixing project messages or memory. An agent must request
-`scope: global` explicitly for a cross-project message or global memory item.
+Codex and Claude still own their sessions, resume commands, context compaction,
+UI, and native subagents. Ardvi only supplies the shared channel.
 
-Stop the service when no client needs it:
+## Skills
+
+To list every skill installed on the running MCP server:
 
 ```bash
-make down
+ardvi skills list
+# inside a harness project, the same command is:
+make skills
 ```
 
-There is no tmux session or Ardvi web interface. Codex and Claude keep their own
-sessions, resume commands, context compaction, UI, and native subagents.
+You can also ask an agent:
 
-## Skills and personas
+```text
+Use skills-list and show the skills installed on Ardvi MCP, grouped by source.
+```
 
-`make init` installs the complete managed catalogs. `make update` refreshes all
-of them and prints their resolved commit SHA:
+The catalog is lazy: agents call `skills_search` first and `skill_read` only for
+skills needed by the current task. Skill bodies and their `references/`,
+`scripts/`, `templates/`, and other dependencies are retained together.
+
+Managed sources in the release image are:
+
+- [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills);
+- [msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents),
+  exposed as optional personas through `personas_search`;
+- [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail);
+- [msimchowitz/writing-skills](https://github.com/msimchowitz/writing-skills),
+  including `writing`, `general-writing`, `humanizer`, `writing-cadence`,
+  `better-usage`, `non-autoregressive-writing-pass`, and `academic-voice`.
+
+Built-in entry skills are `communication`, `writing`, `lets-go`, `session-end`,
+`project-context`, and `skills-list`.
+
+`stop-slop` is not part of the default pipeline. If installed separately, treat
+it only as optional audit/debug tooling.
+
+### Where the skills are stored
+
+Yes: the complete Addy Osmani, Ponytail, Writing Skills, and Agency Agents
+trees live in the MCP container under `/opt/ardvi`; they are not copied into
+every project. They are read-only and tied to the release's exact commit SHA.
+
+Each project receives only six small entry skills in `.agents/skills/` and
+`.claude/skills/`. These let Codex and Claude discover the workflow before they
+contact MCP. Project-owned custom skills remain in the project and are never
+updated by Ardvi.
+
+## Updates
+
+Update the shared MCP image and every managed catalog at once:
 
 ```bash
+ardvi update
+# equivalent:
+ardvi skills update
+```
+
+The command downloads the latest release manifest, pulls an image pinned by
+digest, starts it, waits for health, and keeps the previous configuration if the
+new service fails.
+
+Run this in each initialized project when you also want its managed harness
+files refreshed:
+
+```bash
+cd /path/to/project
 make update
 ```
 
-Stop the hub before an update, then start it again so the new catalog becomes
-visible:
+The container and skills update is machine-wide, so doing it from one project
+updates the server used by all projects. The copied `.harness/` directory is
+per-project, so `make update` must be run separately in every project that needs
+new bootstrap files. Local changes to managed blocks cause a visible conflict;
+they are never silently overwritten.
+
+## Several projects at once
 
 ```bash
-make down
-make update
-make up
+cd /work/project-a && make up
+cd /work/project-b && make up
 ```
 
-Installed upstreams:
+Both commands address the same Compose project named `ardvi`. The second is an
+idempotent health/start operation; it does not create a second MCP container.
+Project messages and memory stay isolated by `.ardvi/project.json`. A tool call
+must explicitly use `scope: global` to cross project boundaries.
 
-- `addyosmani/agent-skills`;
-- `msitarzewski/agency-agents` as optional personas;
-- `DietrichGebert/ponytail`;
-- `msimchowitz/writing-skills`, including the `writing` router,
-  `general-writing`, `humanizer`, `writing-cadence`, `better-usage`,
-  `non-autoregressive-writing-pass`, and `academic-voice`.
+`make down` stops the machine-wide service and therefore disconnects every
+project. Usually leave it running. Use `make down` only when no project needs
+Ardvi.
 
-Built-in skills are `communication`, `writing`, `lets-go`, `session-end`, and
-`project-context`. The small native entry points are discoverable immediately;
-the full catalogs are searched and loaded through MCP only when needed.
+## Files and persistent data
 
-`stop-slop`, if installed separately, is optional audit/debug tooling. It is not
-part of the default writing pipeline.
+```text
+~/.config/ardvi/compose.yaml          global Compose configuration
+~/.config/ardvi/installed-release.json exact image and upstream revisions
+Docker volume ardvi-data              messages, memory, sessions, claims
+/opt/ardvi inside the image           complete managed skill/persona catalogs
+
+project/.ardvi/project.json           stable project UUID
+project/.codex/config.toml            Codex MCP connection
+project/.mcp.json                     Claude MCP connection
+project/AGENTS.md                     shared project instructions
+project/CLAUDE.md                     imports AGENTS.md
+project/.agents/skills/               Codex entry skills
+project/.claude/skills/               Claude entry skills
+```
+
+The MCP endpoint is `http://127.0.0.1:8765/mcp`. It is deliberately published
+only on loopback. The project UUID is isolation, not authentication; do not
+expose this port to a network.
 
 ## Memory between machines
 
-Stop the hub, export durable project memory, inspect it for secrets, and commit
-it only if appropriate:
+Only durable project memory is exported. Global memory is excluded. Stop the
+shared service first because the store permits one writer:
 
 ```bash
+cd /path/to/project
 make down
 make memory-export OUTPUT=.ardvi/memory.jsonl
-git diff -- .ardvi/memory.jsonl
+make up
 ```
 
-On another machine, after `make init`:
+Inspect the file for secrets before committing it. On another machine:
 
 ```bash
+cd /path/to/project
 make down
 make memory-import INPUT=.ardvi/memory.jsonl
 make up
 ```
 
-Only durable project memory is exported. Global memory is excluded. Tracked
-specs, ADRs, and task files remain the source of truth.
+Use tracked ADRs, specs, and task files as the source of truth. MCP memory is
+for concise observations and handoffs.
 
-## Checks and troubleshooting
+## Troubleshooting
 
 ```bash
-make doctor
 make status
-curl -fsS http://127.0.0.1:8765/healthz
+make doctor
+docker logs ardvi-mcp
+ardvi skills list --json
 ```
 
-The health response must be `{"status":"ok"}`. Inside Codex or Claude, open
-`/mcp` and confirm that `ardvi` is connected. To verify persistence, ask one
-session to store `memory-check-001` as durable project memory, end that session,
-open a new native session, use `lets-go`, and ask it to search project memory for
-`memory-check-001`.
+If port `8765` is already occupied, stop the unrelated process or change that
+service. Ardvi intentionally uses one fixed local endpoint so every project can
+share it.
 
-If a client was open during `make init`, restart that client so it reloads MCP
-configuration. On first open, approve/trust the repository and its project MCP
-entry when Codex or Claude asks. The service listens only on `127.0.0.1:8765`;
-it is not exposed to the network. Logs are stored under
-`~/.local/share/project-harness/hub/server.log`.
+## Maintainer release flow
 
-Requirements: Linux, macOS, or WSL with Git, Python 3.10+, Go 1.25+, `curl`,
-internet access for `make init`/`make update`, and at least one of Codex or
-Claude Code.
-
-## Harness development
+Refresh and review pinned upstream revisions before a release:
 
 ```bash
-bash -n .harness/scripts/*.sh
-go -C .harness/mcp test -race ./...
-bash .harness/tests/make_integration_test.sh
-bash .harness/tests/copy_integration_test.sh
-bash .harness/tests/writing_integration_test.sh
-bash .harness/tests/harness_update_integration_test.sh
+make harness-upstream-lock
+git diff -- .harness/upstreams.lock.tsv
 ```
 
-Architecture and behavior are recorded in `.harness/docs/`.
+A `v*` tag runs CI, tests the harness, builds Linux/macOS host binaries, builds
+the Linux `amd64`/`arm64` MCP image, publishes it to GHCR with SBOM and
+provenance, and creates `release-manifest.json` plus checksums. The manifest
+contains the exact image digest and every upstream commit SHA. The GHCR package
+must be public for installation without `docker login`.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT. See [LICENSE](LICENSE).

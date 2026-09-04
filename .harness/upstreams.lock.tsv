@@ -1,0 +1,5 @@
+# name	repository	revision	resolved_commit	installed_path	update_policy
+agent-skills	https://github.com/addyosmani/agent-skills.git	main	1c760d643497e9da289300e5eb2f5aca861503f7	upstreams/agent-skills/skills	fast-forward
+agency-agents	https://github.com/msitarzewski/agency-agents.git	main	54573734191790031cfe294c98d2a6b002136956	upstreams/agency-agents	fast-forward
+ponytail	https://github.com/DietrichGebert/ponytail.git	main	974d940a1c5344210874150b98ff0d2c861fab6a	upstreams/ponytail/skills	fast-forward
+writing-skills	https://github.com/msimchowitz/writing-skills.git	main	214981fe02326f27b0fc8790d00eb4b731607073	upstreams/writing-skills/for-agents	fast-forward

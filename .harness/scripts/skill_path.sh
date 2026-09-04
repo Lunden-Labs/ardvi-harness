@@ -8,14 +8,10 @@ if [[ ! "$skill" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
   exit 2
 fi
 
-if [[ -f "$HARNESS_DIR/skills/$skill/SKILL.md" && "$skill" != writing ]]; then
-  path="$HARNESS_DIR/skills/$skill/SKILL.md"
-else
-  path="$UPSTREAMS_DIR/writing-skills/for-agents/$skill/SKILL.md"
-fi
+path="$HARNESS_DIR/skills/$skill/SKILL.md"
 
 if [[ ! -f "$path" ]]; then
-  echo "Skill is not installed: $skill (run make update)" >&2
+  echo "Native entry skill is not installed: $skill; use 'ardvi skills list' for the MCP catalog." >&2
   exit 1
 fi
 printf '%s\n' "$path"
