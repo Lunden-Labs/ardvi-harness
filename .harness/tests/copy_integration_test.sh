@@ -25,7 +25,7 @@ fresh_output="$(run_copy "$fresh")"
 [[ -f "$fresh/.harness/skills/lets-go/SKILL.md" ]]
 [[ -f "$fresh/.harness/skills/skills-list/SKILL.md" ]]
 [[ -f "$fresh/.harness/LICENSE" ]]
-diff -q "$repo_root/LICENSE" "$fresh/.harness/LICENSE" >/dev/null
+diff -q "$repo_root/.harness/LICENSE" "$fresh/.harness/LICENSE" >/dev/null
 python3 "$fresh/.harness/scripts/manage_harness.py" verify "$fresh/.harness" >/dev/null
 grep -Fqx 'ARDVI_HARNESS_SHORT_TARGETS := 1' "$fresh/Makefile"
 grep -Fqx '.DEFAULT_GOAL := help' "$fresh/Makefile"
