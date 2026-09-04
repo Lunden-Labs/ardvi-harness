@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1] - 2026-09-04
+
+### Fixed
+
+- Harness skill catalog roots published the build-time staging path (e.g. `/rootfs/opt/ardvi/skills/...`) instead of the runtime image path, breaking `skill_read` for every `harness:*` skill after image build.
+- `frontmatter()` read only single-line YAML scalars, turning a `description: >` or `description: |` block scalar into the literal indicator character and truncating frontmatter parsing past 40 lines.
+
 ## [0.1.0] - 2026-09-04
 
 ### Added

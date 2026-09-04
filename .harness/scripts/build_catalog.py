@@ -9,18 +9,34 @@ import pathlib
 import tempfile
 
 
+_BLOCK_SCALARS = {">", ">-", ">+", "|", "|-", "|+"}
+
+
 def frontmatter(path: pathlib.Path) -> tuple[str, str]:
     text = path.read_text(encoding="utf-8", errors="replace")
     name, description = path.parent.name, ""
     if text.startswith("---\n"):
-        for line in text.split("\n", 40)[1:]:
-            if line == "---":
-                break
-            key, _, value = line.partition(":")
-            if key == "name" and value.strip():
-                name = value.strip().strip('"\'')
+        lines = text.split("\n")
+        i = 1
+        while i < len(lines) and lines[i] != "---":
+            key, _, value = lines[i].partition(":")
+            value = value.strip()
+            if key == "name" and value:
+                name = value.strip('"\'')
             elif key == "description":
-                description = value.strip().strip('"\'')
+                if value in _BLOCK_SCALARS:
+                    block: list[str] = []
+                    i += 1
+                    while i < len(lines) and lines[i] != "---" and (lines[i] == "" or lines[i][:1] in (" ", "\t")):
+                        block.append(lines[i])
+                        i += 1
+                    indents = [len(b) - len(b.lstrip(" ")) for b in block if b.strip()]
+                    common = min(indents, default=0)
+                    joiner = "\n" if value[0] == "|" else " "
+                    description = joiner.join(b[common:] for b in block).strip()
+                    continue
+                description = value.strip('"\'')
+            i += 1
     return name, description
 
 
@@ -30,8 +46,15 @@ def main() -> int:
     scan_upstreams = pathlib.Path(os.environ.get("HARNESS_CATALOG_SCAN_UPSTREAMS", data / "upstreams"))
     root_upstreams = pathlib.Path(os.environ.get("HARNESS_CATALOG_ROOT_UPSTREAMS", data / "upstreams"))
     skills: list[dict[str, str]] = []
+    # Harness skills ship from this repo's checkout, not an upstream clone: scanning
+    # happens at build time under `data` (e.g. /rootfs/opt/ardvi during image build),
+    # but the published root must be the *runtime* path the server will read from
+    # (e.g. /opt/ardvi). root_upstreams already carries that build-vs-runtime split
+    # via HARNESS_CATALOG_ROOT_UPSTREAMS, so derive the harness root from it instead
+    # of re-deriving another env var.
+    harness_root = root_upstreams.parent / "skills"
     roots = [
-        ("harness", data / "skills", data / "skills", data / "skills"),
+        ("harness", data / "skills", harness_root, harness_root),
         ("agent-skills", scan_upstreams / "agent-skills/skills", root_upstreams / "agent-skills/skills", root_upstreams / "agent-skills"),
         ("ponytail", scan_upstreams / "ponytail/skills", root_upstreams / "ponytail/skills", root_upstreams / "ponytail"),
         ("writing-skills", scan_upstreams / "writing-skills/for-agents", root_upstreams / "writing-skills/for-agents", root_upstreams / "writing-skills"),
