@@ -175,8 +175,11 @@ CAO workers appear as windows inside the same tmux session. The main keys are:
 | `Ctrl-b 0` through `Ctrl-b 9` | Select a window by number |
 | `Ctrl-b d` | Detach without stopping the agents |
 
-Hold `Shift` while selecting text with the mouse if tmux captures the
-selection. The [console and tmux handbook](.harness/README.md#console-and-tmux-handbook)
+`make harness-up` registers a tmux hook that keeps mouse capture off for new
+`cao-*` sessions, so ordinary drag selection belongs to the terminal. For a
+session created before the hook was registered, run
+`tmux set-option -t <session-name> mouse off`. The
+[console and tmux handbook](.harness/README.md#console-and-tmux-handbook)
 describes copy mode, clipboard behavior, worker windows, and clean sessions.
 
 ## Daily commands

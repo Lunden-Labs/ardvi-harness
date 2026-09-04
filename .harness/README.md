@@ -186,24 +186,21 @@ keystrokes to the same PTY.
 
 ### Selection, copy, paste, and scrollback
 
-Mouse selection is controlled jointly by tmux and the terminal emulator. If
-tmux captures the mouse, ordinary terminal selection can appear and immediately
-disappear.
+CAO enables mouse capture while creating each tmux session. `make up` registers
+a delayed tmux hook that turns it off again only for new `cao-*` sessions. This
+keeps ordinary drag selection and the right-click menu in the terminal without
+changing unrelated tmux sessions.
 
-For normal terminal-style selection, hold `Shift` while dragging with the
-mouse. Most terminal emulators then handle selection, copy, and the right-click
-menu directly.
-
-To make the terminal own the mouse permanently for the current tmux server:
+Apply the same setting to a CAO session created before the hook was registered:
 
 ```bash
-tmux set-option -g mouse off
+tmux set-option -t <session> mouse off
 ```
 
-Restore tmux mouse scrolling and window/pane selection with:
+Enable tmux mouse scrolling and window/pane selection for one session with:
 
 ```bash
-tmux set-option -g mouse on
+tmux set-option -t <session> mouse on
 ```
 
 For tmux-native scrollback, press `Ctrl-b [` to enter copy mode. Check the key
