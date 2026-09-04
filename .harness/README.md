@@ -26,7 +26,9 @@ Bootstrap creates missing files and merges only checksum-protected Ardvi blocks:
 ```text
 .ardvi/project.json       stable project UUID
 .codex/config.toml        Codex project MCP configuration
+.codex/hooks.json         Codex session-start/prompt/session-end hooks
 .mcp.json                 Claude project MCP configuration
+.claude/settings.json     Claude session-start/prompt/session-end hooks
 .agents/skills/           small Codex entry skills
 .claude/skills/           small Claude entry skills
 AGENTS.md                 shared policy source
@@ -35,6 +37,30 @@ CLAUDE.md                 imports AGENTS.md
 
 Existing files and non-Ardvi MCP entries are preserved. Modified managed blocks
 or entry skills fail closed instead of being overwritten.
+
+## Message delivery
+
+Three layers, from most to least automatic:
+
+1. **Hooks (both clients).** `project_config.py` merges a `SessionStart`,
+   `UserPromptSubmit`, and `SessionEnd` entry — identified by its `ardvi hook `
+   command prefix — into `.claude/settings.json` and `.codex/hooks.json`,
+   without touching any other tool's entries in those files. `SessionStart`
+   registers the session and prints unread messages; `UserPromptSubmit` prints
+   only messages not already shown; `SessionEnd` ends the session. Codex asks
+   the user to trust project hooks the first time it runs one (`/hooks` to
+   review and trust, or `--dangerously-bypass-hook-trust` for automation); this
+   is a one-time step per project, not a harness bug.
+2. **The `unread` piggyback.** Tool results from `message_send`, `message_ack`,
+   and `claim_*` calls carry an `unread` field, so messages surface during
+   ordinary MCP calls even between hook firings.
+3. **`ardvi inbox --follow` (Claude Code only).** Claude Code can arm a
+   persistent `Monitor` running `ardvi inbox --session <id> --follow` to catch
+   messages that arrive mid-turn. Codex has no long-running background task
+   primitive; it relies on layers 1 and 2.
+
+`inbox_read` remains available for catching up on history; it is not the
+primary delivery path.
 
 ## MCP service and persistence
 

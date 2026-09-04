@@ -16,6 +16,17 @@ START = "# project-harness:ardvi-mcp"
 END = "# /project-harness:ardvi-mcp"
 URL = "http://127.0.0.1:8765/mcp"
 
+# (event name, ardvi hook subcommand, SessionStart matcher or None for the rest).
+# Claude Code and Codex both read this same {"hooks": {EventName: [...]}} shape,
+# with PascalCase event names and one command hook per matcher block (verified
+# against Codex's own hooks docs, which also confirm Codex has SessionEnd).
+HOOK_EVENTS = (
+    ("SessionStart", "session-start", "startup|resume|clear|compact"),
+    ("UserPromptSubmit", "prompt", None),
+    ("SessionEnd", "session-end", None),
+)
+HOOK_TIMEOUT_SEC = 10
+
 
 def atomic(path: pathlib.Path, text: str) -> None:
     if path.is_symlink():
@@ -93,19 +104,93 @@ def claude(root: pathlib.Path, project_id: str) -> tuple[str, pathlib.Path, str]
     return status, path, json.dumps(value, indent=2) + "\n"
 
 
+def _is_ours(entry: object) -> bool:
+    return (
+        isinstance(entry, dict)
+        and isinstance(entry.get("command"), str)
+        and entry["command"].startswith("ardvi hook ")
+    )
+
+
+def _desired_block(command: str, matcher: str | None) -> dict:
+    block: dict = {}
+    if matcher is not None:
+        block["matcher"] = matcher
+    block["hooks"] = [{"type": "command", "command": command, "timeout": HOOK_TIMEOUT_SEC}]
+    return block
+
+
+def _merge_event(existing: object, command: str, matcher: str | None) -> list:
+    if existing is None:
+        blocks: list = []
+    elif isinstance(existing, list):
+        blocks = existing
+    else:
+        raise ValueError("expected a list of hook matcher blocks")
+
+    result = []
+    found = False
+    for block in blocks:
+        if isinstance(block, dict) and isinstance(block.get("hooks"), list):
+            new_hooks = []
+            for entry in block["hooks"]:
+                if _is_ours(entry):
+                    found = True
+                    new_hooks.append({"type": "command", "command": command, "timeout": HOOK_TIMEOUT_SEC})
+                else:
+                    new_hooks.append(entry)
+            block = {**block, "hooks": new_hooks}
+        result.append(block)
+    if not found:
+        result.append(_desired_block(command, matcher))
+    return result
+
+
+def hooks(root: pathlib.Path, relpath: str, client: str) -> tuple[str, pathlib.Path, str]:
+    """Merge our SessionStart/UserPromptSubmit/SessionEnd hooks into a client's hooks file.
+
+    Never removes or reorders another tool's matcher blocks or hook entries;
+    only adds our own entry (identified by its "ardvi hook " command prefix)
+    or updates it in place when its command/timeout has drifted.
+    """
+    path = root / relpath
+    if path.is_symlink():
+        raise ValueError(f"hooks file must be a regular file: {path}")
+    value = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    if not isinstance(value, dict):
+        raise ValueError(f"expected a JSON object in {path}")
+    events = value.setdefault("hooks", {})
+    if not isinstance(events, dict):
+        raise ValueError(f"expected \"hooks\" to be an object in {path}")
+    for event_name, subcommand, matcher in HOOK_EVENTS:
+        command = f"ardvi hook {subcommand} --client {client}"
+        events[event_name] = _merge_event(events.get(event_name), command, matcher)
+    text = json.dumps(value, indent=2) + "\n"
+    status = "created" if not path.exists() else ("current" if path.read_text(encoding="utf-8") == text else "updated")
+    return status, path, text
+
+
 def main() -> int:
     root = pathlib.Path(os.environ["HARNESS_REPO_ROOT"]).resolve()
     try:
         value = identity(root)
         codex_status, codex_path, codex_text = codex(root, value["id"])
         claude_status, claude_path, claude_text = claude(root, value["id"])
+        claude_hooks_status, claude_hooks_path, claude_hooks_text = hooks(root, ".claude/settings.json", "claude")
+        codex_hooks_status, codex_hooks_path, codex_hooks_text = hooks(root, ".codex/hooks.json", "codex")
         if not codex_path.exists() or codex_path.read_text(encoding="utf-8") != codex_text:
             atomic(codex_path, codex_text)
         if not claude_path.exists() or claude_path.read_text(encoding="utf-8") != claude_text:
             atomic(claude_path, claude_text)
+        if not claude_hooks_path.exists() or claude_hooks_path.read_text(encoding="utf-8") != claude_hooks_text:
+            atomic(claude_hooks_path, claude_hooks_text)
+        if not codex_hooks_path.exists() or codex_hooks_path.read_text(encoding="utf-8") != codex_hooks_text:
+            atomic(codex_hooks_path, codex_hooks_text)
         print(f"Project identity: {value['id']}")
         print(f"Codex MCP config: {codex_status}")
         print(f"Claude MCP config: {claude_status}")
+        print(f"Claude hooks: {claude_hooks_status}")
+        print(f"Codex hooks: {codex_hooks_status}")
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1

@@ -352,6 +352,23 @@ func (s *Store) Ack(project, session, message string) error {
 	}
 	return errors.New("message not found")
 }
+// UnreadCount returns the total number of messages visible to session that
+// are not yet acknowledged by it, unbounded by any page limit.
+func (s *Store) UnreadCount(project, session string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	own, ok := s.state.Sessions[session]
+	if !ok || own.Project != project {
+		return 0
+	}
+	count := 0
+	for _, m := range s.state.Messages {
+		if (m.Scope == "global" || m.Project == project) && addressed(m, session, own.Name) && !acknowledged(m, session) {
+			count++
+		}
+	}
+	return count
+}
 func (s *Store) Thread(project, thread string, limit int) []Message {
 	s.mu.Lock()
 	defer s.mu.Unlock()

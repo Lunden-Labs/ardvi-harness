@@ -11,6 +11,6 @@ Use when the user closes, resets, or hands off a session.
 2. Put only durable, non-secret facts in project memory. Store decisions in tracked ADRs/specs when they belong there.
 3. Send a concise handoff message when another active agent needs it.
 4. Update `tasks/NEXT.md` only when the task state changed and the file is already used by the project.
-5. Call `session_end`; this releases the session's claims.
+5. Call `session_end`; this releases the session's claims. The SessionEnd hook also calls it on exit, so `session_end` is idempotent — still call it explicitly here rather than relying on the hook.
 
 Never claim work is complete unless its required checks passed. Never store credentials, tokens, private keys, or copied environment contents.

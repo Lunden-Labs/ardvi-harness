@@ -5,6 +5,8 @@ description: Find project-specific context across tracked instructions, MCP memo
 
 # Project context
 
+The `unread` field on hook output and on tool results such as `message_send`, `message_ack`, and `claim_*` is the normal way messages arrive; `inbox_read` is for catching up, not the primary channel.
+
 Read tracked repository instructions first. Use MCP search calls for only the topic needed:
 
 - `memory_search` for durable observations and prior handoffs;

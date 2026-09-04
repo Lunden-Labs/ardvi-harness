@@ -20,7 +20,7 @@ import (
 )
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: ardvi install | init | update | service ensure|status|stop | skills list | serve")
+	fmt.Fprintln(os.Stderr, "usage: ardvi install | init | update | service ensure|status|stop | skills list | hook <event> --client claude|codex | inbox --session ID | serve")
 }
 func localHost(value string) bool {
 	host, _, err := net.SplitHostPort(value)
@@ -148,6 +148,10 @@ func main() {
 		err = memoryCommand(os.Args[2:])
 	case "healthcheck":
 		err = healthcheck(os.Args[2:])
+	case "hook":
+		err = hookCommand(os.Args[2:])
+	case "inbox":
+		err = inboxCommand(os.Args[2:])
 	case "serve":
 		err = serve(os.Args[2:])
 	case "memory-export":

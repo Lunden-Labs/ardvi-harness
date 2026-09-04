@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0] - 2026-09-04
+
+### Added
+
+- Native `SessionStart`/`UserPromptSubmit`/`SessionEnd` hooks for both Codex and Claude Code, installed and kept current by `project_config.py` in `.codex/hooks.json` and `.claude/settings.json` without disturbing any other tool's hook entries.
+- `ardvi hook session-start|prompt|session-end --client claude|codex` and `ardvi inbox --session <id> [--follow]` commands on the host binary.
+- `unread` piggyback on `message_send`, `message_ack`, and `claim_*` results, and a 16 KiB message body limit.
+
 ## [0.1.1] - 2026-09-04
 
 ### Fixed

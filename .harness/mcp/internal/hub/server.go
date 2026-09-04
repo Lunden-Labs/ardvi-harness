@@ -33,6 +33,8 @@ func rw(name, description string) *mcp.Tool {
 	destructive := false
 	return &mcp.Tool{Name: name, Description: description, Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: &destructive}}
 }
+const maxTextBytes = 16 * 1024 // one message or memory item should stay small next to the store's 64 MiB snapshot cap.
+
 func bounded(value, label string, max int) error {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -81,6 +83,25 @@ type threadIn struct {
 }
 type messagesOut struct {
 	Messages []store.Message `json:"messages"`
+}
+
+// withUnread piggybacks a bounded preview of a session's unread inbox onto
+// tool outputs the session is likely to poll right after acting, so a client
+// need not make a separate inbox_read round trip on every turn.
+type withUnread struct {
+	Unread      []store.Message `json:"unread,omitempty"`
+	UnreadCount int             `json:"unread_count,omitempty"`
+}
+type messageSendOut struct {
+	store.Message
+	withUnread
+}
+type claimAcquireOut struct {
+	store.Claim
+	withUnread
+}
+type unreadOut struct {
+	withUnread
 }
 type claimIn struct {
 	SessionID  string `json:"session_id"`
@@ -143,6 +164,20 @@ type contentOut struct {
 	Content catalog.Content `json:"content"`
 }
 
+// unread returns a capped preview (at most 10) of session's unacknowledged
+// inbox plus the true total count, or the zero value if session has none —
+// so the field is simply absent from a tool's JSON output.
+func unread(s *store.Store, project, session string) withUnread {
+	if session == "" {
+		return withUnread{}
+	}
+	messages, err := s.Inbox(project, session, 10)
+	if err != nil || len(messages) == 0 {
+		return withUnread{}
+	}
+	return withUnread{Unread: messages, UnreadCount: s.UnreadCount(project, session)}
+}
+
 func New(s *store.Store, c *catalog.Catalog, version string) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "ardvi-mcp", Version: version}, nil)
 	mcp.AddTool(server, rw("session_start", "Register this native Codex or Claude session."), func(ctx context.Context, req *mcp.CallToolRequest, in sessionStartIn) (*mcp.CallToolResult, store.Session, error) {
@@ -177,19 +212,22 @@ func New(s *store.Store, c *catalog.Catalog, version string) *mcp.Server {
 		return nil, sessionsOut{s.Sessions(p, in.Limit)}, nil
 	})
 
-	mcp.AddTool(server, rw("message_send", "Send a project message, or an explicit global message across projects."), func(ctx context.Context, req *mcp.CallToolRequest, in messageSendIn) (*mcp.CallToolResult, store.Message, error) {
+	mcp.AddTool(server, rw("message_send", "Send a project message, or an explicit global message across projects."), func(ctx context.Context, req *mcp.CallToolRequest, in messageSendIn) (*mcp.CallToolResult, messageSendOut, error) {
 		p, e := project(req)
 		if e != nil {
-			return nil, store.Message{}, e
+			return nil, messageSendOut{}, e
 		}
-		if e = bounded(in.Body, "body", 65536); e != nil {
-			return nil, store.Message{}, e
+		if e = bounded(in.Body, "body", maxTextBytes); e != nil {
+			return nil, messageSendOut{}, e
 		}
 		if len(in.To) > 120 || len(in.ThreadID) > 120 {
-			return nil, store.Message{}, errors.New("recipient or thread_id is too long")
+			return nil, messageSendOut{}, errors.New("recipient or thread_id is too long")
 		}
 		v, e := s.Send(p, in.Scope, in.SessionID, in.To, in.ThreadID, in.Body, in.AckRequired)
-		return nil, v, e
+		if e != nil {
+			return nil, messageSendOut{}, e
+		}
+		return nil, messageSendOut{Message: v, withUnread: unread(s, p, in.SessionID)}, nil
 	})
 	mcp.AddTool(server, ro("inbox_read", "Read messages addressed to a session or its registered name."), func(ctx context.Context, req *mcp.CallToolRequest, in inboxIn) (*mcp.CallToolResult, messagesOut, error) {
 		p, e := project(req)
@@ -199,12 +237,15 @@ func New(s *store.Store, c *catalog.Catalog, version string) *mcp.Server {
 		v, e := s.Inbox(p, in.SessionID, in.Limit)
 		return nil, messagesOut{v}, e
 	})
-	mcp.AddTool(server, rw("message_ack", "Acknowledge receipt of a message."), func(ctx context.Context, req *mcp.CallToolRequest, in ackIn) (*mcp.CallToolResult, empty, error) {
+	mcp.AddTool(server, rw("message_ack", "Acknowledge receipt of a message."), func(ctx context.Context, req *mcp.CallToolRequest, in ackIn) (*mcp.CallToolResult, unreadOut, error) {
 		p, e := project(req)
 		if e == nil {
 			e = s.Ack(p, in.SessionID, in.MessageID)
 		}
-		return nil, empty{}, e
+		if e != nil {
+			return nil, unreadOut{}, e
+		}
+		return nil, unreadOut{withUnread: unread(s, p, in.SessionID)}, nil
 	})
 	mcp.AddTool(server, ro("thread_read", "Read a bounded message thread visible to this project."), func(ctx context.Context, req *mcp.CallToolRequest, in threadIn) (*mcp.CallToolResult, messagesOut, error) {
 		p, e := project(req)
@@ -221,23 +262,29 @@ func New(s *store.Store, c *catalog.Catalog, version string) *mcp.Server {
 		}
 		return nil, claimsOut{s.Claims(p)}, nil
 	})
-	mcp.AddTool(server, rw("claim_acquire", "Atomically acquire or renew a project resource claim."), func(ctx context.Context, req *mcp.CallToolRequest, in claimIn) (*mcp.CallToolResult, store.Claim, error) {
+	mcp.AddTool(server, rw("claim_acquire", "Atomically acquire or renew a project resource claim."), func(ctx context.Context, req *mcp.CallToolRequest, in claimIn) (*mcp.CallToolResult, claimAcquireOut, error) {
 		p, e := project(req)
 		if e != nil {
-			return nil, store.Claim{}, e
+			return nil, claimAcquireOut{}, e
 		}
 		if e = bounded(in.Resource, "resource", 1024); e != nil {
-			return nil, store.Claim{}, e
+			return nil, claimAcquireOut{}, e
 		}
 		v, e := s.Acquire(p, in.SessionID, in.Resource, time.Duration(in.TTLMinutes)*time.Minute)
-		return nil, v, e
+		if e != nil {
+			return nil, claimAcquireOut{}, e
+		}
+		return nil, claimAcquireOut{Claim: v, withUnread: unread(s, p, in.SessionID)}, nil
 	})
-	mcp.AddTool(server, rw("claim_release", "Release a project resource claim owned by this session."), func(ctx context.Context, req *mcp.CallToolRequest, in claimIn) (*mcp.CallToolResult, empty, error) {
+	mcp.AddTool(server, rw("claim_release", "Release a project resource claim owned by this session."), func(ctx context.Context, req *mcp.CallToolRequest, in claimIn) (*mcp.CallToolResult, unreadOut, error) {
 		p, e := project(req)
 		if e == nil {
 			e = s.Release(p, in.SessionID, in.Resource)
 		}
-		return nil, empty{}, e
+		if e != nil {
+			return nil, unreadOut{}, e
+		}
+		return nil, unreadOut{withUnread: unread(s, p, in.SessionID)}, nil
 	})
 
 	mcp.AddTool(server, rw("memory_put", "Store a concise project or explicit global memory item."), func(ctx context.Context, req *mcp.CallToolRequest, in memoryPutIn) (*mcp.CallToolResult, store.Memory, error) {
@@ -245,7 +292,7 @@ func New(s *store.Store, c *catalog.Catalog, version string) *mcp.Server {
 		if e != nil {
 			return nil, store.Memory{}, e
 		}
-		if e = bounded(in.Text, "text", 65536); e != nil {
+		if e = bounded(in.Text, "text", maxTextBytes); e != nil {
 			return nil, store.Memory{}, e
 		}
 		if len(in.Tags) > 20 {

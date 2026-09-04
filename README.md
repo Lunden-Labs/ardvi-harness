@@ -129,15 +129,19 @@ make up
 claude
 ```
 
-Give the agent this first instruction:
+A `SessionStart` hook registers the session and prints unread messages before
+you type anything, and a `UserPromptSubmit` hook keeps delivering new ones as
+they arrive, so most sessions no longer need this first instruction. Give it
+anyway if you want the agent to also pick up `tasks/NEXT.md`:
 
 ```text
 Use lets-go and continue the task in tasks/NEXT.md.
 ```
 
-On the first run, trust the Git project when Codex asks and approve the
-project MCP server when Claude asks. Restart the client after `make init` if
-the Ardvi tools are not visible yet.
+On the first run, trust the Git project when Codex asks, approve the project
+MCP server when Claude asks, and trust the project hooks when Codex asks
+(`/hooks` to review and trust). Restart the client after `make init` if the
+Ardvi tools are not visible yet.
 
 Before clearing context or handing work to another session:
 
@@ -249,7 +253,9 @@ Docker volume ardvi-data              messages, memory, sessions, claims
 
 project/.ardvi/project.json           stable project UUID
 project/.codex/config.toml            Codex MCP connection
+project/.codex/hooks.json             Codex session-start/prompt/session-end hooks
 project/.mcp.json                     Claude MCP connection
+project/.claude/settings.json         Claude session-start/prompt/session-end hooks
 project/AGENTS.md                     shared project instructions
 project/CLAUDE.md                     imports AGENTS.md
 project/.agents/skills/               Codex entry skills

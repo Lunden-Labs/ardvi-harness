@@ -57,6 +57,28 @@ for path in "$HARNESS_DIR/skills/communication/SKILL.md" "$HARNESS_DIR/upstreams
   fi
 done
 
+check_hooks_file() {
+  local path="$1"
+  local wanted="$2"
+  if [[ ! -f "$path" ]]; then
+    printf 'MISSING  file: %s\n' "${path#$REPO_ROOT/}"
+    failed=1
+    return
+  fi
+  local found
+  found="$(grep -c 'ardvi hook ' "$path" 2>/dev/null || true)"
+  if [[ "$found" -ge "$wanted" ]]; then
+    printf 'OK       file: %s (%s ardvi hook commands)\n' "${path#$REPO_ROOT/}" "$found"
+  else
+    printf 'MISSING  file: %s (expected %s ardvi hook commands, found %s)\n' "${path#$REPO_ROOT/}" "$wanted" "$found"
+    failed=1
+  fi
+}
+
+check_hooks_file "$REPO_ROOT/.claude/settings.json" 3
+check_hooks_file "$REPO_ROOT/.codex/hooks.json" 3
+echo "HINT     Codex prompts to trust project hooks on first launch (run /hooks to review and trust)"
+
 if ardvi healthcheck >/dev/null 2>&1; then
   echo "OK       Ardvi MCP health"
 else
