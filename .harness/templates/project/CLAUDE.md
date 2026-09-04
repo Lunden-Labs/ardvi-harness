@@ -1,11 +1,6 @@
-# Claude Code project instructions
+@AGENTS.md
 
-Read `AGENTS.md` before starting work. Treat accepted ADRs and approved specifications as durable project truth.
+# Claude Code
 
-For architectural or behavioral changes:
-
-- locate the relevant ADR/specification before editing code;
-- draft missing documentation as Proposed;
-- do not mark ADRs Accepted without explicit authorization;
-- delegate bounded implementation and independent review through CAO when parallel work is useful;
-- require tests and acceptance evidence before declaring completion.
+Use the project's `ardvi` MCP server from `.mcp.json`. Native Claude sessions,
+context management, and subagents remain managed by Claude Code itself.

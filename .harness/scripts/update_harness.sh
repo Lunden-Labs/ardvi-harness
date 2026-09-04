@@ -2,6 +2,11 @@
 set -Eeuo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
+if [[ -f "$HUB_STATE_DIR/server.pid" ]] && kill -0 "$(<"$HUB_STATE_DIR/server.pid")" 2>/dev/null; then
+  echo "Stop the Ardvi MCP hub with make down before updating." >&2
+  exit 1
+fi
+
 normalize_repository() {
   local repository="${1%.git}"
   case "$repository" in
@@ -63,7 +68,7 @@ fi
 
 cp -a "$temporary/source/.harness" "$temporary/replacement"
 for required in harness.mk scripts/manage_harness.py scripts/install.sh \
-  scripts/sync_instructions.py scripts/register_cao.py upstreams.tsv; do
+  scripts/sync_instructions.py scripts/project_config.py upstreams.tsv mcp/go.mod; do
   if [[ ! -f "$temporary/replacement/$required" ]]; then
     echo "Updated harness is missing required file: $required" >&2
     exit 1

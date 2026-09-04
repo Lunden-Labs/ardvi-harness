@@ -20,8 +20,8 @@ Do not modify a target repository while working here.
 Before a commit, run `bash -n .harness/scripts/*.sh`, a dry Make target such as
 `make -n help`, and inspect the diff for secrets and local paths. For template
 changes, verify rendered and template content agree. `make doctor` is optional
-state-changing integration validation: it runs `cao init` and CAO registration,
-so use it only intentionally.
+state-changing integration validation: it expects the installed Ardvi MCP
+binary, managed upstreams, catalog, and project config, so use it only intentionally.
 
 ## Periodic improvement
 

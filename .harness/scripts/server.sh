@@ -2,43 +2,55 @@
 set -Eeuo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
-if ! command -v cao-server >/dev/null 2>&1; then
-  echo "cao-server is missing. Run: make -f .harness/Makefile install" >&2
+binary="$HARNESS_BIN_DIR/ardvi-mcp"
+port=8765
+pid_file="$HUB_STATE_DIR/server.pid"
+log_file="$HUB_STATE_DIR/server.log"
+health="http://127.0.0.1:$port/healthz"
+
+if [[ ! -x "$binary" ]]; then
+  echo "Ardvi MCP is missing. Run: make init" >&2
   exit 1
 fi
-if ! command -v tmux >/dev/null 2>&1; then
-  echo "tmux is required" >&2
+mkdir -p "$HUB_STATE_DIR" "$HUB_DATA_DIR"
+if [[ -f "$pid_file" ]]; then
+  old_pid="$(cat "$pid_file")"
+  if [[ "$old_pid" =~ ^[0-9]+$ ]] && kill -0 "$old_pid" 2>/dev/null \
+    && ps -p "$old_pid" -o args= | grep -Fq "$binary serve"; then
+    if curl -fsS "$health" 2>/dev/null | grep -q '"status":"ok"'; then
+      echo "Ardvi MCP already running: http://127.0.0.1:$port/mcp"
+      exit 0
+    fi
+    echo "Ardvi MCP process $old_pid is alive but unhealthy. Log: $log_file" >&2
+    exit 1
+  fi
+  rm -f "$pid_file"
+fi
+if curl -fsS "$health" >/dev/null 2>&1; then
+  echo "Port $port is already used by a process not managed by this harness." >&2
   exit 1
 fi
 
-port="${CAO_PORT:-9889}"
-session="project-cao-server"
+nohup "$binary" serve --listen "127.0.0.1:$port" --data "$HUB_DATA_DIR" \
+  --catalog "$HUB_CATALOG" >"$log_file" 2>&1 </dev/null &
+pid=$!
+printf '%s\n' "$pid" > "$pid_file"
 
-configure_tmux_mouse() {
-  tmux set-hook -g 'client-attached[90]' \
-    'if-shell -F "#{m/r:^cao-,#{hook_session_name}}" "set-option -t \"#{hook_session_name}\" mouse off"'
-  tmux set-hook -g 'session-created[90]' \
-    'if-shell -F "#{m/r:^cao-,#{hook_session_name}}" "run-shell -b '\''sleep 1; tmux set-option -t \"#{hook_session_name}\" mouse off'\''"'
-}
-
-if tmux has-session -t "$session" 2>/dev/null; then
-  configure_tmux_mouse
-  echo "CAO server tmux session already exists: $session"
-  exit 0
-fi
-
-tmux new-session -d -s "$session" \
-  "cao-server --host 127.0.0.1 --port '$port'"
-configure_tmux_mouse
-
-for _ in {1..30}; do
-  if curl -fsS "http://127.0.0.1:$port/" >/dev/null 2>&1; then
-    echo "CAO server: http://127.0.0.1:$port"
-    echo "tmux session: $session"
+for _ in {1..50}; do
+  if curl -fsS "$health" 2>/dev/null | grep -q '"status":"ok"'; then
+    echo "Ardvi MCP: http://127.0.0.1:$port/mcp"
+    echo "PID: $pid"
+    echo "Log: $log_file"
     exit 0
   fi
-  sleep 1
+  if ! kill -0 "$pid" 2>/dev/null; then
+    break
+  fi
+  sleep 0.1
 done
 
-echo "CAO server did not become ready. Inspect: tmux attach -t $session" >&2
+kill "$pid" 2>/dev/null || true
+rm -f "$pid_file"
+echo "Ardvi MCP did not become ready. Log: $log_file" >&2
+tail -n 20 "$log_file" >&2 || true
 exit 1

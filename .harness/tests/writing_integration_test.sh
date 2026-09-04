@@ -67,31 +67,12 @@ manifest="$workspace/upstreams.tsv"
 cat > "$manifest" <<EOF
 # name	repository	revision	installed_path	update_policy
 agent-skills	$addy	main	upstreams/agent-skills/skills	fast-forward
-agency-agents	$agency	main	upstreams/agency-agents	fast-forward+generate-cao-profiles
+agency-agents	$agency	main	upstreams/agency-agents	fast-forward
 ponytail	$ponytail	main	upstreams/ponytail/skills	fast-forward
 writing-skills	$writing	main	upstreams/writing-skills/for-agents	fast-forward
 EOF
 
-cat > "$workspace/bin/cao" <<'EOF'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-case "${1:-}" in
-  --version) echo 'cao fixture' ;;
-  init) ;;
-  config)
-    key="${3//./_}"
-    file="$FAKE_CAO_STATE/$key"
-    case "${2:-}" in
-      get) [[ -f "$file" ]] && cat "$file" || printf '[]\n' ;;
-      set) printf '%s\n' "$4" > "$file" ;;
-      *) exit 2 ;;
-    esac
-    ;;
-  *) exit 2 ;;
-esac
-EOF
-chmod +x "$workspace/bin/cao"
-for command in uv cao-server claude codex tmux; do
+for command in claude codex curl; do
   printf '#!/usr/bin/env bash\nexit 0\n' > "$workspace/bin/$command"
   chmod +x "$workspace/bin/$command"
 done
@@ -107,13 +88,9 @@ EOF
 
 export HOME="$workspace/home"
 export PATH="$workspace/bin:$PATH"
-export FAKE_CAO_STATE="$workspace/cao-state"
 export PROJECT_HARNESS_DATA_DIR="$workspace/data"
 export HARNESS_UPSTREAM_MANIFEST="$manifest"
 export HARNESS_SKIP_SELF_UPDATE=1
-mkdir -p "$FAKE_CAO_STATE"
-printf '["/tmp/legacy-project/.harness/skills"]\n' > \
-  "$FAKE_CAO_STATE/skills_extra_dirs"
 
 make --no-print-directory -C "$project" init > "$workspace/init-1.log"
 for skill in writing general-writing humanizer writing-cadence better-usage \
@@ -125,10 +102,18 @@ cmp "$project/.harness/skills/communication/SKILL.md" \
   "$PROJECT_HARNESS_DATA_DIR/skills/communication/SKILL.md"
 [[ -f "$PROJECT_HARNESS_DATA_DIR/skills/communication/.managed-sha256" ]]
 [[ -f "$project/AGENTS.md" && -f "$project/CLAUDE.md" ]]
+[[ -f "$project/.ardvi/project.json" ]]
+[[ -f "$project/.codex/config.toml" && -f "$project/.mcp.json" ]]
+[[ -x "$PROJECT_HARNESS_DATA_DIR/bin/ardvi-mcp" ]]
+[[ -f "$PROJECT_HARNESS_DATA_DIR/catalog.json" ]]
+for skill in communication writing lets-go session-end project-context; do
+  [[ -f "$project/.agents/skills/$skill/SKILL.md" ]]
+  [[ -f "$project/.claude/skills/$skill/SKILL.md" ]]
+done
 [[ "$(grep -Fc '<!-- project-harness:communication sha256=' "$project/AGENTS.md")" == 1 ]]
 [[ "$(grep -Fc '<!-- project-harness:communication sha256=' "$project/CLAUDE.md")" == 1 ]]
-grep -Fq 'harness-skill-path SKILL=writing' "$project/AGENTS.md"
-grep -Fq 'harness-skill-path SKILL=writing' "$project/CLAUDE.md"
+grep -Fq 'session_start' "$project/AGENTS.md"
+grep -Fq '@AGENTS.md' "$project/CLAUDE.md"
 [[ -f "$PROJECT_HARNESS_DATA_DIR/upstreams/agent-skills/skills/using-agent-skills/SKILL.md" ]]
 
 cp "$project/AGENTS.md" "$workspace/AGENTS.after-first-init"
@@ -137,8 +122,9 @@ make --no-print-directory -C "$project" init > "$workspace/init-2.log"
 cmp "$workspace/AGENTS.after-first-init" "$project/AGENTS.md"
 cmp "$workspace/CLAUDE.after-first-init" "$project/CLAUDE.md"
 
-mkdir -p "$project/.cao/skills/project-owned"
-printf 'project-owned\n' > "$project/.cao/skills/project-owned/SKILL.md"
+mkdir -p "$project/.agents/skills/project-owned" "$project/.agents/roles/custom"
+printf 'project-owned\n' > "$project/.agents/skills/project-owned/SKILL.md"
+printf 'custom role\n' > "$project/.agents/roles/custom/keep.md"
 printf 'outside managed block\n' >> "$project/AGENTS.md"
 
 printf '\nupdated fixture\n' >> "$writing/for-agents/general-writing/SKILL.md"
@@ -147,7 +133,8 @@ writing_sha="$(git -C "$writing" rev-parse HEAD)"
 make --no-print-directory -C "$project" update > "$workspace/update.log"
 grep -Fq "$writing_sha" "$workspace/update.log"
 grep -Fq "$writing_sha" "$PROJECT_HARNESS_DATA_DIR/upstreams.lock.tsv"
-grep -Fqx 'project-owned' "$project/.cao/skills/project-owned/SKILL.md"
+grep -Fqx 'project-owned' "$project/.agents/skills/project-owned/SKILL.md"
+grep -Fqx 'custom role' "$project/.agents/roles/custom/keep.md"
 grep -Fqx 'outside managed block' "$project/AGENTS.md"
 
 communication_path="$(make --no-print-directory -C "$project" harness-skill-path SKILL=communication)"
@@ -155,20 +142,8 @@ writing_path="$(make --no-print-directory -C "$project" harness-skill-path SKILL
 [[ "$communication_path" == "$project/.harness/skills/communication/SKILL.md" ]]
 [[ "$writing_path" == "$PROJECT_HARNESS_DATA_DIR/upstreams/writing-skills/for-agents/writing/SKILL.md" ]]
 
-python3 - "$FAKE_CAO_STATE/skills_extra_dirs" "$PROJECT_HARNESS_DATA_DIR/skills" <<'PY'
-import json
-import pathlib
-import sys
-
-paths = json.loads(pathlib.Path(sys.argv[1]).read_text())
-managed_skills = str(pathlib.Path(sys.argv[2]).resolve())
-assert len(paths) == len(set(paths))
-assert managed_skills in paths
-assert not any(path.endswith('/.harness/skills') for path in paths)
-assert any(path.endswith('/agent-skills/skills') for path in paths)
-assert any(path.endswith('/ponytail/skills') for path in paths)
-assert any(path.endswith('/writing-skills/for-agents') for path in paths)
-PY
+grep -Fq 'agency-agents' "$PROJECT_HARNESS_DATA_DIR/upstreams.lock.tsv"
+grep -Fq 'fixture' "$PROJECT_HARNESS_DATA_DIR/catalog.json"
 
 grep -Fq 'Do not run `humanizer`' "$project/.harness/skills/communication/SKILL.md"
 grep -Fq 'For Russian' "$project/.harness/skills/communication/SKILL.md"
@@ -185,7 +160,7 @@ fi
 grep -Fq 'refusing to overwrite locally modified managed block' "$workspace/conflict.log"
 
 existing="$workspace/existing"
-mkdir -p "$existing/docs/ADR" "$existing/docs/specs" "$existing/.cao/skills/custom"
+mkdir -p "$existing/docs/ADR" "$existing/docs/specs" "$existing/.cao/skills/custom" "$existing/.agents/roles"
 git -C "$existing" init -q
 cp -a "$repo_root/.harness" "$existing/.harness"
 printf 'existing agents\n' > "$existing/AGENTS.md"
@@ -193,6 +168,7 @@ printf 'existing claude\n' > "$existing/CLAUDE.md"
 printf 'existing ADR\n' > "$existing/docs/ADR/keep.md"
 printf 'existing spec\n' > "$existing/docs/specs/keep.md"
 printf 'custom skill\n' > "$existing/.cao/skills/custom/SKILL.md"
+printf 'custom role\n' > "$existing/.agents/roles/custom.md"
 cat > "$existing/Makefile" <<'EOF'
 include .harness/harness.mk
 EOF
@@ -202,5 +178,6 @@ grep -Fqx 'existing claude' "$existing/CLAUDE.md"
 grep -Fqx 'existing ADR' "$existing/docs/ADR/keep.md"
 grep -Fqx 'existing spec' "$existing/docs/specs/keep.md"
 grep -Fqx 'custom skill' "$existing/.cao/skills/custom/SKILL.md"
+grep -Fqx 'custom role' "$existing/.agents/roles/custom.md"
 
 echo "writing integration: PASS"

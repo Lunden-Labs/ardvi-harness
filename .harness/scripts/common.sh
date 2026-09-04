@@ -10,11 +10,14 @@ fi
 TEMPLATES_DIR="$HARNESS_DIR/templates"
 HARNESS_DATA_DIR="${PROJECT_HARNESS_DATA_DIR:-$HOME/.local/share/project-harness}"
 UPSTREAMS_DIR="$HARNESS_DATA_DIR/upstreams"
-AGENCY_CAO_DIR="$HARNESS_DATA_DIR/generated/agency-agents-cao"
+HARNESS_BIN_DIR="${PROJECT_HARNESS_BIN_DIR:-$HARNESS_DATA_DIR/bin}"
+HUB_STATE_DIR="$HARNESS_DATA_DIR/hub"
+HUB_DATA_DIR="$HARNESS_DATA_DIR/data"
+HUB_CATALOG="$HARNESS_DATA_DIR/catalog.json"
 UPSTREAM_MANIFEST="${HARNESS_UPSTREAM_MANIFEST:-$HARNESS_DIR/upstreams.tsv}"
 UPSTREAM_LOCK="$HARNESS_DATA_DIR/upstreams.lock.tsv"
 
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="$HARNESS_BIN_DIR:$HOME/.local/bin:$PATH"
 
 project_slug() {
   if [[ -n "${PROJECT_SLUG:-}" ]]; then
@@ -22,15 +25,16 @@ project_slug() {
     return
   fi
 
-  local env_file="$REPO_ROOT/.cao/project.env"
-  if [[ -f "$env_file" ]]; then
+  local env_file
+  for env_file in "$REPO_ROOT/.agents/project.env"; do
+    [[ -f "$env_file" ]] || continue
     local saved
     saved="$(sed -n 's/^PROJECT_SLUG=//p' "$env_file" | head -n 1)"
     if [[ "$saved" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
       printf '%s' "$saved"
       return
     fi
-  fi
+  done
 
   basename "$REPO_ROOT" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//'
 }

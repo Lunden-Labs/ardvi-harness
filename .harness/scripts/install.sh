@@ -2,10 +2,10 @@
 set -Eeuo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
-for cmd in python3 tmux curl git sha256sum; do
+for cmd in python3 git go sha256sum curl ps; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Missing dependency: $cmd" >&2
-    echo "Ubuntu/Debian: sudo apt-get install -y python3 tmux curl git" >&2
+    echo "Install Python 3, Git, Go, and coreutils, then retry." >&2
     exit 1
   fi
 done
@@ -16,19 +16,13 @@ if sys.version_info < (3, 10):
     raise SystemExit("Python 3.10 or newer is required")
 PY
 
-if ! command -v uv >/dev/null 2>&1; then
-  echo "Installing uv..."
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  export PATH="$HOME/.local/bin:$PATH"
+if [[ -f "$HUB_STATE_DIR/server.pid" ]] && kill -0 "$(<"$HUB_STATE_DIR/server.pid")" 2>/dev/null; then
+  echo "Stop the Ardvi MCP hub with make down before installing or updating." >&2
+  exit 1
 fi
 
-if [[ "${CAO_INSTALL_SOURCE:-stable}" == "main" ]]; then
-  uv tool install 'git+https://github.com/awslabs/cli-agent-orchestrator.git@main' --upgrade
-else
-  uv tool install cli-agent-orchestrator --upgrade
-fi
-
-cao init >/dev/null
+mkdir -p "$HARNESS_BIN_DIR"
+go build -C "$HARNESS_DIR/mcp" -o "$HARNESS_BIN_DIR/ardvi-mcp" ./cmd/ardvi-mcp
 bash "$HARNESS_DIR/scripts/install_managed_skills.sh"
 bash "$HARNESS_DIR/scripts/install_upstreams.sh"
-echo "CAO installed: $(cao --version 2>/dev/null || echo installed)"
+echo "Ardvi MCP installed: $HARNESS_BIN_DIR/ardvi-mcp"

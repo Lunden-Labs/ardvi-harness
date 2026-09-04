@@ -18,21 +18,6 @@ create_from_template() {
   created+=("${target#$REPO_ROOT/}")
 }
 
-render_from_template() {
-  local template="$1"
-  local target="$2"
-  if [[ -e "$target" ]]; then
-    preserved+=("${target#$REPO_ROOT/}")
-    return
-  fi
-  mkdir -p "$(dirname "$target")"
-  local tmp
-  tmp="$(mktemp "${target}.tmp.XXXXXX")"
-  sed "s/__PROJECT_SLUG__/$slug/g" "$template" > "$tmp"
-  mv "$tmp" "$target"
-  created+=("${target#$REPO_ROOT/}")
-}
-
 detect_existing_dir() {
   local kind="$1"
   local candidates=()
@@ -70,6 +55,7 @@ detect_existing_dir() {
 create_from_template "$TEMPLATES_DIR/project/AGENTS.md" "$REPO_ROOT/AGENTS.md"
 create_from_template "$TEMPLATES_DIR/project/CLAUDE.md" "$REPO_ROOT/CLAUDE.md"
 HARNESS_REPO_ROOT="$REPO_ROOT" python3 "$HARNESS_DIR/scripts/sync_instructions.py"
+HARNESS_REPO_ROOT="$REPO_ROOT" python3 "$HARNESS_DIR/scripts/project_config.py"
 
 if adr_dir="$(detect_existing_dir adr)"; then
   preserved+=("${adr_dir#$REPO_ROOT/}/ (existing ADR directory; untouched)")
@@ -91,27 +77,32 @@ else
   create_from_template "$TEMPLATES_DIR/project/tasks/README.md" "$REPO_ROOT/tasks/README.md"
 fi
 
-mkdir -p "$REPO_ROOT/.cao/agents" "$REPO_ROOT/.cao/skills"
-if [[ ! -e "$REPO_ROOT/.cao/project.env" ]]; then
-  printf 'PROJECT_SLUG=%s\n' "$slug" > "$REPO_ROOT/.cao/project.env"
-  created+=(".cao/project.env")
+mkdir -p "$REPO_ROOT/.agents/skills" "$REPO_ROOT/.claude/skills"
+if [[ ! -e "$REPO_ROOT/.agents/project.env" ]]; then
+  printf 'PROJECT_SLUG=%s\n' "$slug" > "$REPO_ROOT/.agents/project.env"
+  created+=(".agents/project.env")
 else
-  preserved+=(".cao/project.env")
+  preserved+=(".agents/project.env")
 fi
 
-for profile in architect backend-claude backend-codex reviewer-claude reviewer-codex; do
-  render_from_template \
-    "$TEMPLATES_DIR/agents/${profile}.md.tpl" \
-    "$REPO_ROOT/.cao/agents/${slug}-${profile}.md"
-done
+python3 "$HARNESS_DIR/scripts/install_project_skills.py"
 
-render_from_template \
-  "$TEMPLATES_DIR/skills/project-context/SKILL.md.tpl" \
-  "$REPO_ROOT/.cao/skills/${slug}-project-context/SKILL.md"
-
-render_from_template \
-  "$TEMPLATES_DIR/skills/external-catalog/SKILL.md.tpl" \
-  "$REPO_ROOT/.cao/skills/${slug}-external-catalog/SKILL.md"
+if [[ -n "${PROMPT:-}" && -n "${PROMPT_FILE:-}" ]]; then
+  echo "Set only PROMPT or PROMPT_FILE, not both." >&2
+  exit 1
+fi
+if [[ -n "${PROMPT_FILE:-}" ]]; then
+  [[ -f "$PROMPT_FILE" ]] || { echo "PROMPT_FILE not found: $PROMPT_FILE" >&2; exit 1; }
+  PROMPT="$(<"$PROMPT_FILE")"
+fi
+if [[ -n "${PROMPT:-}" ]]; then
+  if [[ -e "$REPO_ROOT/tasks/NEXT.md" ]]; then
+    echo "Refusing to replace existing tasks/NEXT.md; add the prompt manually." >&2
+    exit 1
+  fi
+  printf '# Next task\n\n%s\n' "$PROMPT" > "$REPO_ROOT/tasks/NEXT.md"
+  created+=("tasks/NEXT.md")
+fi
 
 echo "Project slug: $slug"
 if ((${#created[@]})); then
@@ -119,10 +110,4 @@ if ((${#created[@]})); then
 fi
 if ((${#preserved[@]})); then
   printf 'Preserved: %s\n' "${preserved[@]}"
-fi
-
-if command -v cao >/dev/null 2>&1; then
-  python3 "$HARNESS_DIR/scripts/register_cao.py"
-else
-  echo "CAO is not installed; project files are ready. Run: make init"
 fi

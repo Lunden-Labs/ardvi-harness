@@ -1,5 +1,5 @@
 # name	repository	revision	installed_path	update_policy
 agent-skills	https://github.com/addyosmani/agent-skills.git	main	upstreams/agent-skills/skills	fast-forward
-agency-agents	https://github.com/msitarzewski/agency-agents.git	main	upstreams/agency-agents	fast-forward+generate-cao-profiles
+agency-agents	https://github.com/msitarzewski/agency-agents.git	main	upstreams/agency-agents	fast-forward
 ponytail	https://github.com/DietrichGebert/ponytail.git	main	upstreams/ponytail/skills	fast-forward
 writing-skills	https://github.com/msimchowitz/writing-skills.git	main	upstreams/writing-skills/for-agents	fast-forward

@@ -1,311 +1,186 @@
-# ARDVI Harness
+# Ardvi project harness
 
-ARDVI Harness adds CAO, ready-made Codex and Claude Code agent profiles,
-project instructions, managed skills, and a local Web UI to an existing Git
-repository.
+Ardvi adds shared communication, memory, skills, and resource claims to normal
+Codex and Claude projects. It does not replace either application and does not
+start agents for you.
 
-The quick start below uses `make harness-*` commands. These commands work in
-every project, including projects that already have their own `Makefile`.
+## Install in a project
 
-## Before you start
-
-Run the commands from Bash on Linux or in a compatible Unix environment. On
-Ubuntu or Debian, install the required system tools with:
+The target must already be a Git repository. Clone this repository once, then
+copy the harness:
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y git make python3 curl tmux coreutils
+git clone https://github.com/Lunden-Labs/ardvi-harness.git
+cd ardvi-harness
+make copy TARGET=/path/to/your-project
+cd /path/to/your-project
+make init
 ```
 
-Codex CLI and Claude Code use `npm`. Install Node.js 18 or newer and confirm
-that `node` and `npm` are available:
+`make init` installs the local MCP server and all managed skills, creates a
+stable project identity, and configures both clients. Existing `AGENTS.md`,
+`CLAUDE.md`, docs, specs, ADRs, custom skills, and non-Ardvi MCP settings are
+preserved.
+
+To give the first agent a task during initialization:
 
 ```bash
-node --version
-npm --version
+make init PROMPT='Inspect this repository and propose the first implementation plan.'
 ```
 
-Install both agent CLIs with their official package names:
+The prompt is written once to `tasks/NEXT.md`. It is not sent to a provider and
+an existing `tasks/NEXT.md` is never overwritten. For a long prompt:
 
 ```bash
-npm install -g @openai/codex
-npm install -g @anthropic-ai/claude-code
+make init PROMPT_FILE=/path/to/prompt.md
 ```
 
-Authenticate each CLI once:
+## Daily use
+
+Start the shared local service:
 
 ```bash
-codex --login
+make up
+make status
+```
+
+Open the client you already use, from the project directory:
+
+```bash
+codex
+# or
 claude
 ```
 
-Complete the account prompts. After Claude Code opens, exit it with `Ctrl-C`.
-Then confirm that both commands are available:
+Codex reads `AGENTS.md`, `.codex/config.toml`, and `.agents/skills/`. Claude
+reads `CLAUDE.md`, `.mcp.json`, and `.claude/skills/`. `CLAUDE.md` imports
+`AGENTS.md`, so both clients receive the same project policy.
 
-```bash
-codex --version
-claude --version
-```
+At the start of a session, ask the agent to use `lets-go`. It registers the
+native session, reads relevant messages and memory, and continues from the
+repository state. Before clearing context or handing work to another agent, ask
+it to use `session-end`.
 
-See the official [Codex CLI setup](https://help.openai.com/en/articles/11096431)
-and [Claude Code setup](https://docs.anthropic.com/en/docs/claude-code/getting-started)
-if installation or authentication fails.
-
-The target project must be a Git repository. For a new empty project:
-
-```bash
-mkdir -p /absolute/path/to/your-project
-cd /absolute/path/to/your-project
-git init
-```
-
-For an existing project, use its Git root. This command prints the correct
-directory:
-
-```bash
-git -C /path/to/your-project rev-parse --show-toplevel
-```
-
-## Install the harness
-
-Replace the two example paths, then copy and run this block:
-
-```bash
-PROJECT_DIR="/absolute/path/to/your-project"
-HARNESS_DIR="/absolute/path/to/ardvi-harness"
-
-git clone https://github.com/Lunden-Labs/ardvi-harness.git "$HARNESS_DIR"
-make -C "$HARNESS_DIR" copy TARGET="$PROJECT_DIR"
-make -C "$PROJECT_DIR" harness-init
-make -C "$PROJECT_DIR" harness-up
-```
-
-Use the HTTPS URL so public installations do not require GitHub SSH keys.
-
-The copy command creates `.harness/` in the project. If the project already has
-a regular `Makefile`, the command preserves its content and adds
-`include .harness/harness.mk`. If no `Makefile` exists, it creates one.
-
-`harness-init` may take a few minutes on its first run. It installs CAO, creates
-the missing project files, installs the managed skills, and registers the agent
-profiles. Existing project files are preserved.
-
-When `harness-up` finishes, open this address in Chrome:
+Examples:
 
 ```text
-http://127.0.0.1:9889
+Use lets-go and continue the task in tasks/NEXT.md.
+
+Send the SDK agent a project message with the API decision.
+
+Claim src/auth while you edit it, then release the claim.
+
+Save this compatibility constraint as durable project memory.
+
+Use session-end and leave a concise handoff.
 ```
 
-## Start the first agent
+Each project has its own UUID in `.ardvi/project.json`, so several projects can
+use one server without mixing project messages or memory. An agent must request
+`scope: global` explicitly for a cross-project message or global memory item.
 
-In the CAO Web UI:
-
-1. Create a session.
-2. Select the profile whose name ends with `-architect`.
-3. Set the working directory to the target repository root.
-4. Start the session.
-
-The architect can delegate work to Codex and Claude Code workers. The Web UI
-shows the same running processes that are available through tmux.
-
-To start the architect directly in the current terminal instead of using the
-Web UI:
+Stop the service when no client needs it:
 
 ```bash
-cd /absolute/path/to/your-project
-make harness-architect
+make down
 ```
 
-The architect profile supplies the default provider. Override it for one
-launch with `PROVIDER=codex` or `PROVIDER=claude_code`:
+There is no tmux session or Ardvi web interface. Codex and Claude keep their own
+sessions, resume commands, context compaction, UI, and native subagents.
+
+## Skills and personas
+
+`make init` installs the complete managed catalogs. `make update` refreshes all
+of them and prints their resolved commit SHA:
 
 ```bash
-make harness-architect PROVIDER=codex
+make update
 ```
 
-### Start with a project idea
-
-Pass the first task directly to the architect with `PROMPT`:
+Stop the hub before an update, then start it again so the new catalog becomes
+visible:
 
 ```bash
-make harness-architect PROVIDER=codex PROMPT='I want to create a service that receives files, validates them, and exposes a REST API. Inspect the repository, identify missing requirements, select suitable agents, and show me the proposed plan before implementation.'
+make down
+make update
+make up
 ```
 
-With `PROMPT`, the command starts a detached CAO session, submits the first
-message asynchronously, and then attaches the current terminal to that session.
-A cold Codex launch may spend about a minute starting MCP servers before tmux
-opens. The architect reads the repository instructions, selects suitable
-existing profiles, and breaks the request into tasks. `PROVIDER` affects only
-the architect launched by this command.
+Installed upstreams:
 
-Omit `PROMPT` to open the architect without an initial task:
+- `addyosmani/agent-skills`;
+- `msitarzewski/agency-agents` as optional personas;
+- `DietrichGebert/ponytail`;
+- `msimchowitz/writing-skills`, including the `writing` router,
+  `general-writing`, `humanizer`, `writing-cadence`, `better-usage`,
+  `non-autoregressive-writing-pass`, and `academic-voice`.
+
+Built-in skills are `communication`, `writing`, `lets-go`, `session-end`, and
+`project-context`. The small native entry points are discoverable immediately;
+the full catalogs are searched and loaded through MCP only when needed.
+
+`stop-slop`, if installed separately, is optional audit/debug tooling. It is not
+part of the default writing pipeline.
+
+## Memory between machines
+
+Stop the hub, export durable project memory, inspect it for secrets, and commit
+it only if appropriate:
 
 ```bash
-make harness-architect
+make down
+make memory-export OUTPUT=.ardvi/memory.jsonl
+git diff -- .ardvi/memory.jsonl
 ```
 
-## Continue a Web session in the terminal
-
-Find the session name:
+On another machine, after `make init`:
 
 ```bash
-cao session list
+make down
+make memory-import INPUT=.ardvi/memory.jsonl
+make up
 ```
 
-Attach from a normal terminal:
+Only durable project memory is exported. Global memory is excluded. Tracked
+specs, ADRs, and task files remain the source of truth.
+
+## Checks and troubleshooting
 
 ```bash
-tmux attach-session -t <session-name>
+make doctor
+make status
+curl -fsS http://127.0.0.1:8765/healthz
 ```
 
-If the terminal is already inside tmux, switch to the CAO session instead of
-nesting another tmux session:
+The health response must be `{"status":"ok"}`. Inside Codex or Claude, open
+`/mcp` and confirm that `ardvi` is connected. To verify persistence, ask one
+session to store `memory-check-001` as durable project memory, end that session,
+open a new native session, use `lets-go`, and ask it to search project memory for
+`memory-check-001`.
+
+If a client was open during `make init`, restart that client so it reloads MCP
+configuration. On first open, approve/trust the repository and its project MCP
+entry when Codex or Claude asks. The service listens only on `127.0.0.1:8765`;
+it is not exposed to the network. Logs are stored under
+`~/.local/share/project-harness/hub/server.log`.
+
+Requirements: Linux, macOS, or WSL with Git, Python 3.10+, Go 1.25+, `curl`,
+internet access for `make init`/`make update`, and at least one of Codex or
+Claude Code.
+
+## Harness development
 
 ```bash
-tmux switch-client -t <session-name>
+bash -n .harness/scripts/*.sh
+go -C .harness/mcp test -race ./...
+bash .harness/tests/make_integration_test.sh
+bash .harness/tests/copy_integration_test.sh
+bash .harness/tests/writing_integration_test.sh
+bash .harness/tests/harness_update_integration_test.sh
 ```
 
-CAO workers appear as windows inside the same tmux session. The main keys are:
+Architecture and behavior are recorded in `.harness/docs/`.
 
-| Keys | Action |
-|---|---|
-| `Ctrl-b w` | Open the window list |
-| `Ctrl-b n` | Move to the next window |
-| `Ctrl-b p` | Move to the previous window |
-| `Ctrl-b 0` through `Ctrl-b 9` | Select a window by number |
-| `Ctrl-b d` | Detach without stopping the agents |
+## License
 
-`make harness-up` registers a tmux hook that keeps mouse capture off for new
-`cao-*` sessions, so ordinary drag selection belongs to the terminal. For a
-session created before the hook was registered, run
-`tmux set-option -t <session-name> mouse off`. The
-[console and tmux handbook](.harness/README.md#console-and-tmux-handbook)
-describes copy mode, clipboard behavior, worker windows, and clean sessions.
-
-## Daily commands
-
-Run these commands from the target project:
-
-| Command | Result |
-|---|---|
-| `make harness-up` | Start the CAO Web UI on `127.0.0.1:9889` |
-| `make harness-status` | Show the server and session status |
-| `make harness-architect [PROVIDER=codex\|claude_code] [PROMPT='...']` | Start the architect with optional provider and prompt overrides |
-| `make harness-update` | Update CAO, the harness, profiles, and all managed skills |
-| `make harness-doctor` | Check dependencies, generated files, skills, and CAO registration |
-| `make harness-down` | Stop every local CAO session and the CAO Web UI |
-
-If the harness created the project's root `Makefile`, the shorter forms also
-work: `make up`, `make status`, `make architect`, `make update`, `make doctor`,
-and `make down`.
-
-`make harness-down` calls `cao shutdown --all`. It stops CAO sessions from
-other projects on the same machine as well.
-
-## Update an installed project
-
-Do not copy the harness again when the target already contains `.harness/`.
-Update it from the target project:
-
-```bash
-cd /absolute/path/to/your-project
-make harness-update
-```
-
-The update uses the repositories declared in `.harness/harness-source.tsv` and
-`.harness/upstreams.tsv`. It prints the resolved commit for every source and
-returns a non-zero status if a managed file or checkout was modified locally.
-Project-owned files and custom skills are not overwritten.
-
-## Installed agents and skills
-
-`make harness-init` installs the complete managed catalog. It does not load
-every skill into every agent's context. Agents load the relevant skill when a
-task requires it.
-
-| Source | Installed content |
-|---|---|
-| `addyosmani/agent-skills` | Engineering workflow skills, including planning, testing, review, security, and documentation |
-| `msitarzewski/agency-agents` | Specialist personas converted into CAO-compatible `agency-*` profiles |
-| `DietrichGebert/ponytail` | Minimal implementation and complexity-review skills |
-| `msimchowitz/writing-skills` | The complete `for-agents/` writing catalog and its local dependencies |
-
-The writing catalog includes `writing`, `general-writing`, `humanizer`,
-`writing-cadence`, `better-usage`, `non-autoregressive-writing-pass`, and
-`academic-voice`. The `writing` skill routes a documentation task to the
-smallest relevant editing pipeline. Normal terminal conversation uses the
-lighter `communication` policy and does not run Humanizer automatically.
-
-Locate an installed writing skill with:
-
-```bash
-make harness-skill-path SKILL=communication
-make harness-skill-path SKILL=writing
-make harness-skill-path SKILL=general-writing
-```
-
-Update CAO, the harness, every upstream skill repository, generated Agency
-Agents profiles, and the local revision lock with one command:
-
-```bash
-make harness-update
-```
-
-The update uses fast-forward Git operations and stops on local modifications
-inside a managed checkout. It never silently reuses a partial update.
-
-## Files added to the project
-
-The first initialization creates missing files and directories from this set:
-
-```text
-.harness/
-.cao/agents/
-.cao/skills/
-.cao/project.env
-AGENTS.md
-CLAUDE.md
-docs/adr/
-docs/specs/
-tasks/
-```
-
-The harness manages `.harness/` and a marked communication block inside
-`AGENTS.md` and `CLAUDE.md`. The rest of those instruction files remains owned
-by the project. Existing documentation, ADRs, specifications, tasks, agent
-profiles, and custom skills are preserved.
-
-External skills are shared between projects on the same machine:
-
-```text
-~/.local/share/project-harness/
-```
-
-`make harness-init` installs them on a new machine. `make harness-update` moves
-their managed Git checkouts forward and records the resolved revisions in
-`~/.local/share/project-harness/upstreams.lock.tsv`.
-
-## If something fails
-
-Run the status and diagnostic commands first:
-
-```bash
-make harness-status
-make harness-doctor
-```
-
-Common errors:
-
-- `target is not a Git repository`: run `git init` in the project root.
-- `target must be the Git repository root`: use the path printed by
-  `git rev-parse --show-toplevel`.
-- `target already has .harness`: run `make harness-update` in that project.
-- `codex` or `claude` is missing: install and authenticate the missing CLI.
-- A prompted Codex session exits while an MCP server starts: keep that server's
-  `startup_timeout_sec` below CAO's `server.provider_init_timeout`.
-- The Web UI is unreachable: run `make harness-status`. Inspect the server with
-  `tmux attach-session -t project-cao-server`.
-
-The [full harness manual](.harness/README.md) covers MCP verification, Chrome
-DevTools, memory export and import, writing skills, managed-file protection,
-optional settings, and the complete tmux workflow.
+MIT. See `LICENSE`.

@@ -78,9 +78,6 @@ def main() -> int:
     repository = pathlib.Path(
         os.environ.get("HARNESS_REPO_ROOT", harness.parent)
     ).resolve()
-    body = (harness / "templates/project/communication.md").read_text(
-        encoding="utf-8"
-    )
     targets = [repository / "AGENTS.md", repository / "CLAUDE.md"]
 
     try:
@@ -89,7 +86,11 @@ def main() -> int:
                 path,
                 *plan(
                     path,
-                    body,
+                    (
+                        (harness / "templates/project/communication.md").read_text(encoding="utf-8")
+                        if path.name == "AGENTS.md"
+                        else "@AGENTS.md\n\nClaude Code uses the same project policy and the `ardvi` MCP server from `.mcp.json`.\n"
+                    ),
                     (harness / "templates/project" / path.name).read_text(
                         encoding="utf-8"
                     ),

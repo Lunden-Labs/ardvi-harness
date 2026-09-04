@@ -8,8 +8,8 @@ if [[ ! "$skill" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
   exit 2
 fi
 
-if [[ "$skill" == "communication" ]]; then
-  path="$HARNESS_DIR/skills/communication/SKILL.md"
+if [[ -f "$HARNESS_DIR/skills/$skill/SKILL.md" && "$skill" != writing ]]; then
+  path="$HARNESS_DIR/skills/$skill/SKILL.md"
 else
   path="$UPSTREAMS_DIR/writing-skills/for-agents/$skill/SKILL.md"
 fi
