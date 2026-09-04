@@ -6,6 +6,7 @@ workspace="$(mktemp -d)"; trap 'rm -rf "$workspace"' EXIT
 # Fresh project: bootstrap.sh (via project_config.py) installs both hook files
 # with the expected three ardvi hook commands each.
 fresh="$workspace/fresh"; mkdir -p "$fresh"; git -C "$fresh" init -q; cp -a "$repo_root/.harness" "$fresh/.harness"
+rm -f "$fresh/.harness/.managed-state.json"  # fixture must not inherit a local dev checkout's state
 HARNESS_REPO_ROOT="$fresh" bash "$fresh/.harness/scripts/bootstrap.sh" >/dev/null
 
 for path in "$fresh/.claude/settings.json" "$fresh/.codex/hooks.json"; do
@@ -38,6 +39,7 @@ HARNESS_REPO_ROOT="$fresh" bash "$fresh/.harness/scripts/bootstrap.sh" >/dev/nul
 # repaired in place without disturbing the rest.
 foreign="$workspace/foreign"; mkdir -p "$foreign/.claude" "$foreign/.codex"; git -C "$foreign" init -q
 cp -a "$repo_root/.harness" "$foreign/.harness"
+rm -f "$foreign/.harness/.managed-state.json"
 cat > "$foreign/.claude/settings.json" <<'EOF'
 {
   "permissions": {"allow": ["Bash(ls:*)"]},
@@ -62,6 +64,7 @@ grep -Fq '"timeout": 10' "$foreign/.claude/settings.json"
 # Invalid JSON fails closed with a clear error and leaves every file untouched.
 broken="$workspace/broken"; mkdir -p "$broken/.codex"; git -C "$broken" init -q
 cp -a "$repo_root/.harness" "$broken/.harness"
+rm -f "$broken/.harness/.managed-state.json"
 printf 'not valid json{{{' > "$broken/.codex/hooks.json"
 before="$(sha256sum "$broken/.codex/hooks.json")"
 if HARNESS_REPO_ROOT="$broken" python3 "$broken/.harness/scripts/project_config.py" >/dev/null 2>"$workspace/broken.log"; then

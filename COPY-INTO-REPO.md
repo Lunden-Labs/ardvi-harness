@@ -38,3 +38,7 @@ make harness-update
 
 `make down` and `make harness-down` stop the one machine-wide service used by
 all initialized projects.
+
+Commit `.harness/` in full, including `.harness/.managed-state.json`, to the
+target repository. `make harness-update` refuses to run without that file, and
+a teammate's fresh clone needs it too — it is not regenerated on clone.

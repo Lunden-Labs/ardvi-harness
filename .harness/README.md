@@ -19,6 +19,15 @@ the `ardvi` host binary, the `ardvi-mcp` container, and Docker volume
 `ardvi-data`. A target repository owns its `.ardvi/` identity, instructions,
 custom skills, docs, ADRs, specs, and task files.
 
+A target repository must also commit `.harness/` in full, including
+`.managed-state.json` and `LICENSE` (a verbatim copy of this repository's MIT
+license, so the notice travels with the copied harness). `manage_harness.py`
+writes the state file deterministically (sorted keys, stable indent, trailing
+newline) so it diffs cleanly; it records the installed commit and a checksum
+of every managed file, including `LICENSE`, and `make update` uses it to
+detect local edits before replacing anything. A fresh clone that is missing
+the state file cannot self-update.
+
 ## Project files
 
 Bootstrap creates missing files and merges only checksum-protected Ardvi blocks:

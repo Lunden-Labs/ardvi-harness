@@ -6,6 +6,7 @@ fixture="$(mktemp -d)"
 trap 'rm -rf "$fixture"' EXIT
 
 cp -a "$repo_root/.harness" "$fixture/.harness"
+rm -f "$fixture/.harness/.managed-state.json"  # fixture must not inherit a local dev checkout's state
 git -C "$fixture" init -q
 cat > "$fixture/Makefile" <<'EOF'
 .PHONY: help

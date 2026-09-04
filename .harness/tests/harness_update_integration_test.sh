@@ -11,6 +11,11 @@ mkdir -p "$source_repo" "$target"
 git -C "$source_repo" init -q -b main
 git -C "$target" init -q
 cp -a "$repo_root/.harness" "$source_repo/.harness"
+# The fixture must build from a clean tree: a local dev checkout of the
+# harness repo may carry its own .managed-state.json (from running copy/
+# update elsewhere), which would leak into the fixture's checksums and then
+# fail verification once this test rewrites harness-source.tsv below.
+rm -f "$source_repo/.harness/.managed-state.json"
 cat > "$source_repo/Makefile" <<'EOF'
 ARDVI_HARNESS_SHORT_TARGETS := 1
 include .harness/harness.mk
@@ -58,6 +63,9 @@ git -C "$source_checkout" init -q
 git -C "$source_checkout" remote add origin \
   git@github.com:Lunden-Labs/ardvi-harness.git
 cp -a "$repo_root/.harness" "$source_checkout/.harness"
+# This case exercises the no-state "source checkout" path; a stray local
+# state file (see the note above) would make update_harness.sh skip it.
+rm -f "$source_checkout/.harness/.managed-state.json"
 source_output="$(bash "$source_checkout/.harness/scripts/update_harness.sh")"
 grep -Fq 'Harness source checkout: update .harness through normal Git workflow' \
   <<< "$source_output"

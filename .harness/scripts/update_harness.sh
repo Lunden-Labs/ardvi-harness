@@ -30,7 +30,15 @@ if [[ ! -f "$state" ]]; then
     echo "Harness source checkout: update .harness through normal Git workflow"
     exit 0
   fi
-  echo "Managed harness state is missing; reinstall with make copy before self-update" >&2
+  state_relative="${state#"$REPO_ROOT"/}"
+  if git -C "$REPO_ROOT" ls-files --error-unmatch -- "$state_relative" >/dev/null 2>&1; then
+    echo "Managed harness state is tracked but missing from the working tree; restore it with:" >&2
+    echo "  git -C \"$REPO_ROOT\" checkout -- \"$state_relative\"" >&2
+  else
+    echo "Managed harness state is missing; remove $HARNESS_DIR and reinstall it with:" >&2
+    echo "  make copy TARGET=\"$REPO_ROOT\"   (from an ardvi-harness source checkout)" >&2
+    echo "  ardvi init --path \"$REPO_ROOT\"  (from a release install)" >&2
+  fi
   exit 1
 fi
 

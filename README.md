@@ -105,6 +105,11 @@ make init PROMPT='Inspect this repository and prepare an implementation plan.'
 make init PROMPT_FILE=/path/to/task.md
 ```
 
+Commit the copied `.harness/` directory, including the tracked
+`.managed-state.json`, to the project's own Git history. That file records the
+installed commit and file checksums; without it, `make update` and a fresh
+clone of the project cannot self-update.
+
 The prompt is written once to `tasks/NEXT.md`; it is not sent to Codex or
 Claude automatically. Existing `AGENTS.md`, `CLAUDE.md`, docs, ADRs, specs,
 custom skills, and non-Ardvi MCP settings are preserved. A repeated `make init`
