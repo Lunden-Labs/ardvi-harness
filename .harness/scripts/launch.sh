@@ -16,8 +16,12 @@ fi
 
 python3 "$HARNESS_DIR/scripts/register_cao.py"
 cd "$REPO_ROOT"
+provider_args=()
+if [[ -n "${PROVIDER:-}" ]]; then
+  provider_args+=(--provider "$PROVIDER")
+fi
 message=()
 if [[ -n "${PROMPT:-}" ]]; then
   message+=("$PROMPT")
 fi
-exec cao launch --agents "$profile" --provider claude_code "${message[@]}"
+exec cao launch --agents "$profile" "${provider_args[@]}" "${message[@]}"

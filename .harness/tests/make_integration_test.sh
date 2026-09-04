@@ -47,13 +47,17 @@ EOF
 chmod +x "$fixture/bin/cao"
 prompt='Inspect this repository; prepare suitable agents and a plan.'
 HOME="$fixture/home" PATH="$fixture/bin:$PATH" CAO_LAUNCH_ARGS="$fixture/launch.args" \
-  make --no-print-directory -C "$fixture" harness-architect PROMPT="$prompt" >/dev/null
+  make --no-print-directory -C "$fixture" harness-architect PROVIDER=codex \
+    PROMPT="$prompt" >/dev/null
 [[ "$(tail -n 1 "$fixture/launch.args")" == "$prompt" ]]
 [[ "$(grep -Fxc "$prompt" "$fixture/launch.args")" == 1 ]]
+grep -Fqx -- '--provider' "$fixture/launch.args"
+grep -Fqx 'codex' "$fixture/launch.args"
+! grep -Fqx 'claude_code' "$fixture/launch.args"
 HOME="$fixture/home" PATH="$fixture/bin:$PATH" \
   CAO_LAUNCH_ARGS="$fixture/launch-without-prompt.args" \
   make --no-print-directory -C "$fixture" harness-architect >/dev/null
-[[ "$(tail -n 1 "$fixture/launch-without-prompt.args")" == claude_code ]]
-[[ "$(wc -l < "$fixture/launch-without-prompt.args")" == 5 ]]
+[[ "$(tail -n 1 "$fixture/launch-without-prompt.args")" == fixture-architect ]]
+[[ "$(wc -l < "$fixture/launch-without-prompt.args")" == 3 ]]
 
 echo "make integration: PASS"

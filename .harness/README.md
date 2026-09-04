@@ -52,7 +52,7 @@ Optional commands:
 
 ```bash
 make status
-make architect PROMPT='Describe the project you want to create'
+make architect PROVIDER=codex PROMPT='Describe the project you want to create'
 make improve
 make doctor
 ```
@@ -80,13 +80,15 @@ Run CAO from the project root:
 ```bash
 make init       # once: create project files, install skills, register CAO
 make up         # start http://127.0.0.1:9889
-make architect PROMPT='Describe the project you want to create'
+make architect PROVIDER=codex PROMPT='Describe the project you want to create'
 ```
 
 `PROMPT` is optional. When present, CAO sends it as the architect's first
 message. The architect inspects the repository, selects suitable registered
 profiles, and proposes the work breakdown required by the prompt. Without it,
-the architect opens normally and waits for terminal input.
+the architect opens normally and waits for terminal input. The architect
+profile supplies the default provider; `PROVIDER=codex` or
+`PROVIDER=claude_code` overrides it for one launch.
 
 When creating an agent in the Web UI, select the project profile and set the
 working directory to the repository root. The Web UI and tmux connect to the
@@ -439,6 +441,9 @@ PROJECT_HARNESS_DATA_DIR=/srv/cao-harness make init
 
 # Change the local CAO port
 CAO_PORT=9989 make up
+
+# Override the architect profile's provider for one launch
+make architect PROVIDER=codex
 ```
 
 `make down` invokes `cao shutdown --all`; it stops all CAO-managed sessions on this machine because `cao-server` is a machine-wide control plane.

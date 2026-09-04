@@ -116,18 +116,26 @@ cd /absolute/path/to/your-project
 make harness-architect
 ```
 
+The architect profile supplies the default provider. Override it for one
+launch with `PROVIDER=codex` or `PROVIDER=claude_code`:
+
+```bash
+make harness-architect PROVIDER=codex
+```
+
 ### Start with a project idea
 
 Pass the first task directly to the architect with `PROMPT`:
 
 ```bash
-make harness-architect PROMPT='I want to create a service that receives files, validates them, and exposes a REST API. Inspect the repository, identify missing requirements, select suitable agents, and show me the proposed plan before implementation.'
+make harness-architect PROVIDER=codex PROMPT='I want to create a service that receives files, validates them, and exposes a REST API. Inspect the repository, identify missing requirements, select suitable agents, and show me the proposed plan before implementation.'
 ```
 
 CAO sends this text as the architect's first message. The architect reads the
 repository instructions, selects suitable existing Codex, Claude Code, or
 Agency Agents profiles, and breaks the request into tasks. The prompt does not
-generate arbitrary profile files during `make init`.
+generate arbitrary profile files during `make init`. `PROVIDER` affects only
+the architect launched by this command.
 
 Omit `PROMPT` to open the architect without an initial task:
 
@@ -178,7 +186,7 @@ Run these commands from the target project:
 |---|---|
 | `make harness-up` | Start the CAO Web UI on `127.0.0.1:9889` |
 | `make harness-status` | Show the server and session status |
-| `make harness-architect PROMPT='...'` | Start the architect with an optional first task |
+| `make harness-architect [PROVIDER=codex\|claude_code] [PROMPT='...']` | Start the architect with optional provider and prompt overrides |
 | `make harness-update` | Update CAO, the harness, profiles, and all managed skills |
 | `make harness-doctor` | Check dependencies, generated files, skills, and CAO registration |
 | `make harness-down` | Stop every local CAO session and the CAO Web UI |
