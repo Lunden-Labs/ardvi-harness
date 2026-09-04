@@ -39,25 +39,47 @@ case "${1:-}" in
     esac
     ;;
   launch)
-    printf '%s\n' "$@" > "$CAO_LAUNCH_ARGS"
+    printf '%s\0' "$@" > "$CAO_LAUNCH_ARGS"
+    printf '%s\n' "${CAO_MCP_REQUEST_TIMEOUT:-}" > "$CAO_TIMEOUT_VALUE"
     ;;
   *) exit 2 ;;
 esac
 EOF
+cat > "$fixture/bin/tmux" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf '%s\0' "$@" > "$TMUX_ARGS"
+EOF
 chmod +x "$fixture/bin/cao"
-prompt='Inspect this repository; prepare suitable agents and a plan.'
+chmod +x "$fixture/bin/tmux"
+prompt=$'- Inspect this repository.\nPrepare suitable agents and a plan.'
 HOME="$fixture/home" PATH="$fixture/bin:$PATH" CAO_LAUNCH_ARGS="$fixture/launch.args" \
+  CAO_TIMEOUT_VALUE="$fixture/timeout.value" TMUX_ARGS="$fixture/tmux.args" \
   make --no-print-directory -C "$fixture" harness-architect PROVIDER=codex \
     PROMPT="$prompt" >/dev/null
-[[ "$(tail -n 1 "$fixture/launch.args")" == "$prompt" ]]
-[[ "$(grep -Fxc "$prompt" "$fixture/launch.args")" == 1 ]]
-grep -Fqx -- '--provider' "$fixture/launch.args"
-grep -Fqx 'codex' "$fixture/launch.args"
-! grep -Fqx 'claude_code' "$fixture/launch.args"
+launch_args=()
+while IFS= read -r -d '' arg; do launch_args+=("$arg"); done < "$fixture/launch.args"
+[[ "${launch_args[$((${#launch_args[@]} - 1))]}" == "$prompt" ]]
+[[ "${launch_args[*]}" == *'--provider codex'* ]]
+[[ "${launch_args[*]}" == *'--headless --async'* ]]
+[[ "${launch_args[*]}" != *'claude_code'* ]]
+for ((i = 0; i < ${#launch_args[@]}; i++)); do
+  if [[ "${launch_args[$i]}" == --session-name ]]; then
+    launch_session="${launch_args[$((i + 1))]}"
+  fi
+done
+[[ -n "${launch_session:-}" ]]
+[[ "$(cat "$fixture/timeout.value")" == 120 ]]
+tmux_args=()
+while IFS= read -r -d '' arg; do tmux_args+=("$arg"); done < "$fixture/tmux.args"
+[[ "${tmux_args[*]}" == "attach-session -t cao-$launch_session" ]]
 HOME="$fixture/home" PATH="$fixture/bin:$PATH" \
   CAO_LAUNCH_ARGS="$fixture/launch-without-prompt.args" \
+  CAO_TIMEOUT_VALUE="$fixture/timeout-without-prompt.value" \
   make --no-print-directory -C "$fixture" harness-architect >/dev/null
-[[ "$(tail -n 1 "$fixture/launch-without-prompt.args")" == fixture-architect ]]
-[[ "$(wc -l < "$fixture/launch-without-prompt.args")" == 3 ]]
+launch_without_prompt=()
+while IFS= read -r -d '' arg; do launch_without_prompt+=("$arg"); done < \
+  "$fixture/launch-without-prompt.args"
+[[ "${launch_without_prompt[*]}" == 'launch --agents fixture-architect' ]]
 
 echo "make integration: PASS"

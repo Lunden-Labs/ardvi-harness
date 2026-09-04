@@ -20,8 +20,11 @@ provider_args=()
 if [[ -n "${PROVIDER:-}" ]]; then
   provider_args+=(--provider "$PROVIDER")
 fi
-message=()
 if [[ -n "${PROMPT:-}" ]]; then
-  message+=("$PROMPT")
+  session_name="harness-architect-$(date +%s)-$$"
+  CAO_MCP_REQUEST_TIMEOUT="${CAO_MCP_REQUEST_TIMEOUT:-120}" \
+    cao launch --agents "$profile" "${provider_args[@]}" \
+      --session-name "$session_name" --headless --async "$PROMPT"
+  exec tmux attach-session -t "cao-$session_name"
 fi
-exec cao launch --agents "$profile" "${provider_args[@]}" "${message[@]}"
+exec cao launch --agents "$profile" "${provider_args[@]}"

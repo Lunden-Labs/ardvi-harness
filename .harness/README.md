@@ -83,11 +83,13 @@ make up         # start http://127.0.0.1:9889
 make architect PROVIDER=codex PROMPT='Describe the project you want to create'
 ```
 
-`PROMPT` is optional. When present, CAO sends it as the architect's first
-message. The architect inspects the repository, selects suitable registered
-profiles, and proposes the work breakdown required by the prompt. Without it,
-the architect opens normally and waits for terminal input. The architect
-profile supplies the default provider; `PROVIDER=codex` or
+`PROMPT` is optional. When present, the command starts a detached CAO session,
+submits the first message asynchronously, and then attaches the current terminal
+to that session. A cold Codex launch may spend about a minute starting MCP
+servers before tmux opens. If CAO exits while an MCP server starts, keep that
+server's `startup_timeout_sec` below CAO's `server.provider_init_timeout`.
+Without `PROMPT`, the architect opens normally and waits for terminal input.
+The architect profile supplies the default provider; `PROVIDER=codex` or
 `PROVIDER=claude_code` overrides it for one launch.
 
 When creating an agent in the Web UI, select the project profile and set the

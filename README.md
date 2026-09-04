@@ -131,10 +131,11 @@ Pass the first task directly to the architect with `PROMPT`:
 make harness-architect PROVIDER=codex PROMPT='I want to create a service that receives files, validates them, and exposes a REST API. Inspect the repository, identify missing requirements, select suitable agents, and show me the proposed plan before implementation.'
 ```
 
-CAO sends this text as the architect's first message. The architect reads the
-repository instructions, selects suitable existing Codex, Claude Code, or
-Agency Agents profiles, and breaks the request into tasks. The prompt does not
-generate arbitrary profile files during `make init`. `PROVIDER` affects only
+With `PROMPT`, the command starts a detached CAO session, submits the first
+message asynchronously, and then attaches the current terminal to that session.
+A cold Codex launch may spend about a minute starting MCP servers before tmux
+opens. The architect reads the repository instructions, selects suitable
+existing profiles, and breaks the request into tasks. `PROVIDER` affects only
 the architect launched by this command.
 
 Omit `PROMPT` to open the architect without an initial task:
@@ -297,6 +298,8 @@ Common errors:
   `git rev-parse --show-toplevel`.
 - `target already has .harness`: run `make harness-update` in that project.
 - `codex` or `claude` is missing: install and authenticate the missing CLI.
+- A prompted Codex session exits while an MCP server starts: keep that server's
+  `startup_timeout_sec` below CAO's `server.provider_init_timeout`.
 - The Web UI is unreachable: run `make harness-status`. Inspect the server with
   `tmux attach-session -t project-cao-server`.
 
