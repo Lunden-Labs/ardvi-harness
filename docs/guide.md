@@ -146,10 +146,10 @@ make up
 claude
 ```
 
-A `SessionStart` hook registers the session and prints unread messages before
-you type anything, and a `UserPromptSubmit` hook keeps delivering new ones as
-they arrive, so most sessions no longer need this first instruction. Give it
-anyway if you want the agent to also pick up `tasks/NEXT.md`:
+A `SessionStart` hook reconciles the stable agent and conversation session
+before you type. The model then calls `context_bootstrap(session_id)` before
+substantive work; it repeats that call after a resume or context clear/compact.
+`lets-go` is optional, but can also load `tasks/NEXT.md`:
 
 ```text
 Use lets-go and continue the task in tasks/NEXT.md.
@@ -253,8 +253,10 @@ cd /work/project-b && make up
 
 Both commands address the same Compose project named `ardvi`. The second is an
 idempotent health/start operation; it does not create a second MCP container.
-Project messages and memory stay isolated by `.ardvi/project.json`. A tool call
-must explicitly use `scope: global` to cross project boundaries.
+Project messages stay isolated by `.ardvi/project.json`; local projects also
+share `global://default` by default, unless host policy denies access. Project
+memory remains private. Global memory requires explicit publication and retains
+its origin project.
 
 `make down` stops the machine-wide service and therefore disconnects every
 project. Usually leave it running. Use `make down` only when no project needs
@@ -280,8 +282,13 @@ project/.claude/skills/               Claude entry skills
 ```
 
 The MCP endpoint is `http://127.0.0.1:8765/mcp`. It is deliberately published
-only on loopback. The project UUID is isolation, not authentication; do not
-expose this port to a network.
+only on loopback. The project UUID is namespace selection, not authentication.
+Ardvi trusts local processes and does not support remote deployment until
+authenticated host/session binding is available; do not expose this port to a
+network.
+
+For agent identity, requests, claims, memory, and recovery, see the
+[agent protocol](../.harness/docs/agent-protocol.md).
 
 ## Memory between machines
 

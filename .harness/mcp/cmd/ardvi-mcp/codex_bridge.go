@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -59,6 +61,34 @@ type bridgePID struct {
 	closed bool
 }
 
+type bridgeBinaryIdentity struct {
+	Version    string
+	Commit     string
+	Executable string
+	Digest     string
+}
+
+type bridgePIDState struct {
+	PID        int    `json:"pid"`
+	Birth      string `json:"birth"`
+	Version    string `json:"version,omitempty"`
+	Commit     string `json:"commit,omitempty"`
+	Executable string `json:"executable,omitempty"`
+	Digest     string `json:"digest,omitempty"`
+	Project    string `json:"project,omitempty"`
+	Thread     string `json:"thread,omitempty"`
+}
+
+var bridgeProcessInfo = nativeProcessInfo
+var bridgeProcessCommand = bridgeCommand
+var bridgeSignal = func(pid int) error {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return process.Signal(syscall.SIGTERM)
+}
+
 func runCodexBridge(ctx context.Context, args []string) error {
 	f := flag.NewFlagSet("codex-bridge", flag.ContinueOnError)
 	f.SetOutput(io.Discard)
@@ -90,6 +120,9 @@ func runCodexBridge(ctx context.Context, args []string) error {
 		return err
 	}
 	defer pid.close()
+	if err = pid.write(options); err != nil {
+		return err
+	}
 	if options.text != "" {
 		options.once = true
 	}
@@ -156,19 +189,20 @@ func codexBridgePoll(ctx context.Context, options codexBridgeOptions, dir, key, 
 		_, err := codexDeliver(ctx, socket, options.thread, text)
 		return err
 	}
-	seenPath := filepath.Join(dir, "inbox-"+options.session+".json")
+	session, mapping := codexBridgeSession(dir, key, options)
+	seenPath := filepath.Join(dir, "inbox-"+session+".json")
 	var legacy []string
-	if mapping, ok := loadMapping(filepath.Join(dir, key+".json")); ok {
+	if mapping != nil {
 		legacy = mapping.SeenIDs
 	}
 	err := withSeen(seenPath, legacy, func(seen map[string]bool) ([]string, error) {
 		fetchCtx, cancel := context.WithTimeout(ctx, hookHTTPTimeout)
-		messages, err := fetchInbox(fetchCtx, options.url, options.project, options.session)
+		messages, err := fetchInbox(fetchCtx, options.url, options.project, session)
 		cancel()
 		if err != nil {
 			return nil, err
 		}
-		text, newIDs := formatNewMessages(options.session, messages, seen)
+		text, newIDs := formatNewMessages(session, messages, seen)
 		if len(newIDs) == 0 {
 			return nil, nil
 		}
@@ -188,6 +222,23 @@ func codexBridgePoll(ctx context.Context, options codexBridgeOptions, dir, key, 
 		return nil
 	}
 	return err
+}
+
+// codexBridgeSession follows a reconciled Ardvi session only when the mapping
+// proves it belongs to this bridge's native Codex thread and Project. Manual
+// --once/--text calls keep their explicit session argument.
+func codexBridgeSession(dir, key string, options codexBridgeOptions) (string, *hookMapping) {
+	mapping, ok := loadMapping(filepath.Join(dir, key+".json"))
+	if !ok || !matchingNativeMapping(mapping, "codex", options.project, options.thread) || mapping.ArdviSessionID == "" {
+		return options.session, nil
+	}
+	if !mapping.Stable || options.once {
+		if mapping.ArdviSessionID == options.session {
+			return options.session, &mapping
+		}
+		return options.session, nil
+	}
+	return mapping.ArdviSessionID, &mapping
 }
 
 func resolveCodexSocket(ctx context.Context, override string) (string, error) {
@@ -241,8 +292,11 @@ func acquireBridgePID(dir, key string) (*bridgePID, bool, error) {
 		}
 		return nil, false, err
 	}
-	if err = file.Truncate(0); err == nil {
-		_, err = fmt.Fprintf(file, "%d\n", os.Getpid())
+	process, _, processErr := bridgeProcessInfo(os.Getpid())
+	if processErr != nil {
+		err = processErr
+	} else {
+		err = writeBridgePID(file, bridgePIDState{PID: os.Getpid(), Birth: process.Birth})
 	}
 	if err != nil {
 		syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
@@ -250,6 +304,181 @@ func acquireBridgePID(dir, key string) (*bridgePID, bool, error) {
 		return nil, false, err
 	}
 	return &bridgePID{file: file}, true, nil
+}
+
+func (p *bridgePID) write(options codexBridgeOptions) error {
+	identity, err := currentBridgeIdentity()
+	if err != nil {
+		return err
+	}
+	process, _, err := bridgeProcessInfo(os.Getpid())
+	if err != nil {
+		return err
+	}
+	return writeBridgePID(p.file, bridgePIDState{PID: os.Getpid(), Birth: process.Birth, Version: identity.Version,
+		Commit: identity.Commit, Executable: identity.Executable, Digest: identity.Digest, Project: options.project, Thread: options.thread})
+}
+
+func writeBridgePID(file *os.File, state bridgePIDState) error {
+	if err := file.Truncate(0); err != nil {
+		return err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	return json.NewEncoder(file).Encode(state)
+}
+
+func currentBridgeIdentity() (bridgeBinaryIdentity, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return bridgeBinaryIdentity{}, err
+	}
+	file, err := os.Open(executable)
+	if err != nil {
+		return bridgeBinaryIdentity{}, err
+	}
+	defer file.Close()
+	digest := sha256.New()
+	if _, err = io.Copy(digest, file); err != nil {
+		return bridgeBinaryIdentity{}, err
+	}
+	return bridgeBinaryIdentity{Version: version, Commit: commit, Executable: executable, Digest: fmt.Sprintf("%x", digest.Sum(nil))}, nil
+}
+
+func bridgePIDPath(dir string, mapping hookMapping) string {
+	return filepath.Join(dir, "bridge-"+mappingKey("codex", mapping.NativeSessionID, mapping.ProjectID)+".pid")
+}
+
+func readBridgePID(path string) (bridgePIDState, bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return bridgePIDState{}, false, err
+	}
+	var state bridgePIDState
+	if json.Unmarshal(data, &state) == nil && state.PID > 1 {
+		return state, true, nil
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 1 {
+		return bridgePIDState{}, false, nil
+	}
+	return bridgePIDState{PID: pid}, true, nil
+}
+
+func bridgeLockAvailable(path string) (bool, error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if err == nil {
+		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		return true, nil
+	}
+	if errors.Is(err, syscall.EWOULDBLOCK) {
+		return false, nil
+	}
+	return false, err
+}
+
+// replaceOutdatedCodexBridge makes a release update take effect for the same
+// native thread without touching the native client or another adapter.
+func replaceOutdatedCodexBridge(dir string, mapping hookMapping, identity bridgeBinaryIdentity) error {
+	path := bridgePIDPath(dir, mapping)
+	available, err := bridgeLockAvailable(path)
+	if err != nil || available {
+		return err
+	}
+	state, ok, err := readBridgePID(path)
+	if err != nil || !ok || bridgeStateCurrent(state, mapping, identity) {
+		return err
+	}
+	if !bridgeProcessMatches(state, mapping) {
+		return nil
+	}
+	if err = bridgeSignal(state.PID); err != nil {
+		return err
+	}
+	return waitForBridgeUnlock(path)
+}
+
+func bridgeStateCurrent(state bridgePIDState, mapping hookMapping, identity bridgeBinaryIdentity) bool {
+	return state.Version == identity.Version && state.Commit == identity.Commit && state.Executable == identity.Executable && state.Digest == identity.Digest &&
+		state.Project == mapping.ProjectID && state.Thread == mapping.NativeSessionID
+}
+
+func waitForBridgeUnlock(path string) error {
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	for {
+		available, err := bridgeLockAvailable(path)
+		if err != nil || available {
+			return err
+		}
+		select {
+		case <-deadline.C:
+			return errors.New("timed out waiting for Codex bridge to stop")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+func bridgeProcessMatches(state bridgePIDState, mapping hookMapping) bool {
+	if state.PID <= 1 {
+		return false
+	}
+	process, command, err := bridgeProcessInfo(state.PID)
+	executable := state.Executable
+	if executable == "" {
+		executable, err = os.Executable()
+	}
+	if err != nil || (state.Birth != "" && process.Birth != state.Birth) || command != filepath.Base(executable) {
+		return false
+	}
+	line, err := bridgeProcessCommand(state.PID)
+	if err != nil {
+		return false
+	}
+	args := bridgeArguments(line)
+	return len(args) > 1 && args[1] == "codex-bridge" && bridgeExecutableMatches(args, executable) &&
+		bridgeArgument(args[2:], "--project", mapping.ProjectID) &&
+		bridgeArgument(args[2:], "--thread", mapping.NativeSessionID)
+}
+
+func bridgeExecutableMatches(args []string, executable string) bool {
+	return len(args) > 0 && (args[0] == executable || filepath.Base(args[0]) == filepath.Base(executable))
+}
+
+func bridgeArgument(args []string, name, value string) bool {
+	for i, arg := range args {
+		if arg != name {
+			continue
+		}
+		if value == "" || i+1 < len(args) && args[i+1] == value {
+			return true
+		}
+	}
+	return false
+}
+
+func bridgeArguments(line string) []string {
+	if strings.Contains(line, "\x00") {
+		return strings.Split(strings.TrimSuffix(line, "\x00"), "\x00")
+	}
+	// ps output cannot safely preserve quoted paths, so reject anything that
+	// does not parse as ordinary whitespace-separated argv below.
+	return strings.Fields(line)
+}
+
+func bridgeCommand(pid int) (string, error) {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err == nil {
+		return string(data), nil
+	}
+	output, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
+	return string(output), err
 }
 
 func (p *bridgePID) close() {

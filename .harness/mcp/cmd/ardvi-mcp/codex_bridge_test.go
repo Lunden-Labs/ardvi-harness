@@ -143,6 +143,31 @@ func TestCodexBridgeSecondInstanceIsNoOpAndStalePIDFileIsReusable(t *testing.T) 
 	third.close()
 }
 
+func TestCodexBridgePollFollowsReconciledMappingSession(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	dir := osStateDir(t)
+	options := codexBridgeOptions{session: "expired-session", project: "project-id", thread: "native-thread"}
+	key := mappingKey("codex", options.thread, options.project)
+	path := filepath.Join(dir, key+".json")
+	if err := saveMapping(path, hookMapping{
+		ArdviSessionID: "reconciled-session", ProjectID: options.project, Client: "codex",
+		NativeSessionID: options.thread, Stable: true, SeenIDs: []string{"already-seen"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	session, mapping := codexBridgeSession(dir, key, options)
+	if session != "reconciled-session" || mapping == nil || len(mapping.SeenIDs) != 1 {
+		t.Fatalf("bridge did not follow reconciled mapping: session=%q mapping=%+v", session, mapping)
+	}
+	if err := saveMapping(path, hookMapping{ArdviSessionID: "wrong", ProjectID: options.project, Client: "claude", NativeSessionID: options.thread, Stable: true}); err != nil {
+		t.Fatal(err)
+	}
+	session, mapping = codexBridgeSession(dir, key, options)
+	if session != options.session || mapping != nil {
+		t.Fatalf("bridge accepted mismatched mapping: session=%q mapping=%+v", session, mapping)
+	}
+}
+
 func nullableString(value string) any {
 	if value == "" {
 		return nil

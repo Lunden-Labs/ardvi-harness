@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.4.0] - 2026-09-05
+
+### Added
+
+- Local Agent Fabric: stable per-project/client agents, native startup bootstrap,
+  cross-project discovery, durable offline routing, leased request ownership,
+  atomic claims and scoped memory. Native Codex and Claude remain the entry points.
+- Installed orchestration instructions and skills guide flat delegation and
+  economical model selection; agent correspondence never expands human permission.
+- Thirty-day shared informational history, protected unfinished/direct pending
+  work, retired idempotency key receipts and bootstrap quota warnings.
+
+### Fixed
+
+- Request acceptance reserves result capacity so queue pressure cannot block
+  completion of newly accepted work.
+- Native hooks replace outdated matching Codex bridges after host binary updates,
+  including legacy PID files, without restarting native clients.
+- Native heartbeat and Claude inbox watchers retry temporary connection failures
+  while the verified client remains alive; expired leases still require native
+  hook reconciliation.
+
+### Compatibility
+
+- Back up the Ardvi data volume before upgrading; older binaries do not preserve
+  Fabric state. Host CLI and project integrations must be upgraded along with the
+  service. `ardvi update` updates the service/catalog, not the installed host CLI.
+- Restart native clients after this upgrade to refresh cached MCP output schemas
+  and background watchers. An existing Claude session may reject the new
+  bootstrap response until its MCP catalog is refreshed.
+
 ## [0.3.0] - 2026-09-05
 
 ### Added

@@ -1,5 +1,10 @@
 # Native agent hub
 
+The local Agent Fabric contract in [SPEC-agent-fabric.md](SPEC-agent-fabric.md)
+supersedes this document's session routing, startup context, global namespace
+and background delivery semantics. Container packaging and native client ownership
+remain as described in ADR-0002.
+
 ## Objective
 
 Let Codex and Claude run through their normal applications while sharing a

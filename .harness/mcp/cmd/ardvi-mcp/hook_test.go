@@ -65,7 +65,7 @@ func TestHookSessionStartRegistersAndWritesMapping(t *testing.T) {
 	if err := hookSessionStart(&out, "codex", url, in); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "name=hooktest-a") || !strings.Contains(out.String(), "do not call session_start again") {
+	if !strings.Contains(out.String(), "stable agent=") || !strings.Contains(out.String(), "context_bootstrap(session_id=") {
 		t.Fatalf("missing registration paragraph: %s", out.String())
 	}
 
@@ -74,7 +74,7 @@ func TestHookSessionStartRegistersAndWritesMapping(t *testing.T) {
 	if !ok {
 		t.Fatal("mapping was not written")
 	}
-	if mapping.Name != "hooktest-a" || mapping.ProjectID != projectID || mapping.ArdviSessionID == "" || mapping.NativeSessionID != "client-sess-1" {
+	if mapping.Name != "hooktest-a" || mapping.ProjectID != projectID || mapping.ArdviSessionID == "" || mapping.NativeSessionID != "client-sess-1" || !mapping.Stable || mapping.MachineID == "" || mapping.AgentID == "" {
 		t.Fatalf("bad mapping: %+v", mapping)
 	}
 }
@@ -285,4 +285,138 @@ func TestInboxSkipsImmediatelyWhenBridgeOwnsSeenState(t *testing.T) {
 	if err = inboxOnce(&bytes.Buffer{}, "http://127.0.0.1:1", "project", "session", path); err != nil {
 		t.Fatalf("busy seen state should be a no-op, got %v", err)
 	}
+}
+
+func TestReplaceCodexBridgeKeepsCurrentBridge(t *testing.T) {
+	dir := t.TempDir()
+	mapping := hookMapping{ProjectID: "project", NativeSessionID: "thread"}
+	identity := bridgeBinaryIdentity{Version: "0.3.2", Commit: "commit", Executable: "ardvi", Digest: "digest"}
+	path := bridgePIDPath(dir, mapping)
+	lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	if err = writeBridgePID(lock, bridgePIDState{PID: 42, Birth: "born", Version: identity.Version, Commit: identity.Commit, Executable: identity.Executable, Digest: identity.Digest, Project: mapping.ProjectID, Thread: mapping.NativeSessionID}); err != nil {
+		t.Fatal(err)
+	}
+
+	withBridgeProcessFakes(t, "born", "ardvi", "ardvi codex-bridge --project project --thread thread")
+	if err = replaceOutdatedCodexBridge(dir, mapping, identity); err != nil {
+		t.Fatal(err)
+	}
+	if bridgeSignalCalls != 0 {
+		t.Fatalf("current bridge was signalled %d times", bridgeSignalCalls)
+	}
+}
+
+func TestBridgeStateCurrentRequiresBinaryDigest(t *testing.T) {
+	mapping := hookMapping{ProjectID: "project", NativeSessionID: "thread"}
+	identity := bridgeBinaryIdentity{Version: "0.3.2", Commit: "commit", Executable: "ardvi", Digest: "new"}
+	state := bridgePIDState{Version: identity.Version, Commit: identity.Commit, Executable: identity.Executable, Digest: identity.Digest, Project: mapping.ProjectID, Thread: mapping.NativeSessionID}
+	if !bridgeStateCurrent(state, mapping, identity) {
+		t.Fatal("matching bridge metadata was not current")
+	}
+	state.Digest = "old"
+	if bridgeStateCurrent(state, mapping, identity) {
+		t.Fatal("same-version bridge with an old binary digest was reused")
+	}
+}
+
+func TestReplaceCodexBridgeReplacesOnlyMatchingOutdatedProcess(t *testing.T) {
+	dir := t.TempDir()
+	mapping := hookMapping{ProjectID: "project", NativeSessionID: "thread"}
+	path := bridgePIDPath(dir, mapping)
+	lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = lock.WriteString("42\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	withBridgeProcessFakes(t, "born", filepath.Base(executable), executable+"\x00codex-bridge\x00--project\x00project\x00--thread\x00thread\x00")
+	bridgeSignal = func(int) error {
+		bridgeSignalCalls++
+		return syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	}
+	if err = replaceOutdatedCodexBridge(dir, mapping, bridgeBinaryIdentity{Version: "0.3.2", Executable: "ardvi"}); err != nil {
+		t.Fatal(err)
+	}
+	if bridgeSignalCalls != 1 {
+		t.Fatalf("outdated bridge signal calls = %d, want 1", bridgeSignalCalls)
+	}
+}
+
+func TestReplaceCodexBridgeDoesNotSignalWrongOrReusedPID(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		birth   string
+		binary  string
+		command string
+		legacy  bool
+	}{
+		{name: "wrong command", birth: "born", binary: "ardvi", command: "other codex-bridge --project project --thread thread"},
+		{name: "reused pid", birth: "reused", binary: "ardvi", command: "ardvi codex-bridge --project project --thread thread"},
+		{name: "legacy wrong executable", birth: "born", binary: "other", command: "other\x00codex-bridge\x00--project\x00project\x00--thread\x00thread\x00", legacy: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			mapping := hookMapping{ProjectID: "project", NativeSessionID: "thread"}
+			path := bridgePIDPath(dir, mapping)
+			lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lock.Close()
+			if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+				t.Fatal(err)
+			}
+			defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+			if test.legacy {
+				_, err = lock.WriteString("42\n")
+			} else {
+				err = writeBridgePID(lock, bridgePIDState{PID: 42, Birth: "born", Version: "0.3.1", Executable: "ardvi", Project: mapping.ProjectID, Thread: mapping.NativeSessionID})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			withBridgeProcessFakes(t, test.birth, test.binary, test.command)
+			if err = replaceOutdatedCodexBridge(dir, mapping, bridgeBinaryIdentity{Version: "0.3.2", Executable: "ardvi"}); err != nil {
+				t.Fatal(err)
+			}
+			if bridgeSignalCalls != 0 {
+				t.Fatalf("unmatched bridge was signalled %d times", bridgeSignalCalls)
+			}
+		})
+	}
+}
+
+var bridgeSignalCalls int
+
+func withBridgeProcessFakes(t *testing.T, birth, binary, command string) {
+	t.Helper()
+	originalInfo, originalCommand, originalSignal := bridgeProcessInfo, bridgeProcessCommand, bridgeSignal
+	bridgeSignalCalls = 0
+	bridgeProcessInfo = func(pid int) (nativeProcess, string, error) {
+		return nativeProcess{PID: pid, Birth: birth}, binary, nil
+	}
+	bridgeProcessCommand = func(int) (string, error) { return command, nil }
+	bridgeSignal = func(int) error { bridgeSignalCalls++; return nil }
+	t.Cleanup(func() {
+		bridgeProcessInfo, bridgeProcessCommand, bridgeSignal = originalInfo, originalCommand, originalSignal
+	})
 }

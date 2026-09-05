@@ -170,6 +170,10 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
+	var wake *hookWake
+	if errors.As(err, &wake) {
+		os.Exit(2) // Claude asyncRewake treats exit 2 as a native wake signal.
+	}
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -16,15 +16,22 @@ START = "# project-harness:ardvi-mcp"
 END = "# /project-harness:ardvi-mcp"
 URL = "http://127.0.0.1:8765/mcp"
 
-# (event name, ardvi hook subcommand, SessionStart matcher or None for the rest).
-# Claude Code and Codex both read this same {"hooks": {EventName: [...]}} shape,
-# with PascalCase event names and one command hook per matcher block (verified
-# against Codex's own hooks docs, which also confirm Codex has SessionEnd).
-HOOK_EVENTS = (
-    ("SessionStart", "session-start", "startup|resume|clear|compact"),
-    ("UserPromptSubmit", "prompt", None),
-    ("SessionEnd", "session-end", None),
-)
+# Client hooks have the same outer JSON shape, but Claude alone supports
+# asyncRewake. Its watcher is started at SessionStart and rearmed by Stop.
+HOOK_EVENTS = {
+    "codex": (
+        ("SessionStart", "session-start", "startup|resume|clear|compact", {}),
+        ("UserPromptSubmit", "prompt", None, {}),
+        ("SessionEnd", "session-end", None, {}),
+    ),
+    "claude": (
+        ("SessionStart", "session-start", "startup|resume|clear|compact|fork", {}),
+        ("UserPromptSubmit", "prompt", None, {}),
+        ("SessionEnd", "session-end", None, {}),
+        ("SessionStart", "watch", "startup|resume|clear|compact|fork", {"asyncRewake": True, "timeout": 86400}),
+        ("Stop", "watch", None, {"asyncRewake": True, "timeout": 86400}),
+    ),
+}
 HOOK_TIMEOUT_SEC = 10
 
 
@@ -112,15 +119,15 @@ def _is_ours(entry: object) -> bool:
     )
 
 
-def _desired_block(command: str, matcher: str | None) -> dict:
+def _desired_block(command: str, matcher: str | None, options: dict) -> dict:
     block: dict = {}
     if matcher is not None:
         block["matcher"] = matcher
-    block["hooks"] = [{"type": "command", "command": command, "timeout": HOOK_TIMEOUT_SEC}]
+    block["hooks"] = [{"type": "command", "command": command, "timeout": HOOK_TIMEOUT_SEC, **options}]
     return block
 
 
-def _merge_event(existing: object, command: str, matcher: str | None) -> list:
+def _merge_event(existing: object, desired: list[dict]) -> list:
     if existing is None:
         blocks: list = []
     elif isinstance(existing, list):
@@ -129,21 +136,16 @@ def _merge_event(existing: object, command: str, matcher: str | None) -> list:
         raise ValueError("expected a list of hook matcher blocks")
 
     result = []
-    found = False
     for block in blocks:
         if isinstance(block, dict) and isinstance(block.get("hooks"), list):
-            new_hooks = []
-            for entry in block["hooks"]:
-                if _is_ours(entry):
-                    found = True
-                    new_hooks.append({"type": "command", "command": command, "timeout": HOOK_TIMEOUT_SEC})
-                else:
-                    new_hooks.append(entry)
+            new_hooks = [entry for entry in block["hooks"] if not _is_ours(entry)]
+            # Drop a managed-only block. Blocks with foreign hooks stay in their
+            # original order and keep every foreign entry untouched.
+            if not new_hooks and set(block).issubset({"matcher", "hooks"}):
+                continue
             block = {**block, "hooks": new_hooks}
         result.append(block)
-    if not found:
-        result.append(_desired_block(command, matcher))
-    return result
+    return result + desired
 
 
 def hooks(root: pathlib.Path, relpath: str, client: str) -> tuple[str, pathlib.Path, str]:
@@ -162,9 +164,12 @@ def hooks(root: pathlib.Path, relpath: str, client: str) -> tuple[str, pathlib.P
     events = value.setdefault("hooks", {})
     if not isinstance(events, dict):
         raise ValueError(f"expected \"hooks\" to be an object in {path}")
-    for event_name, subcommand, matcher in HOOK_EVENTS:
+    wanted: dict[str, list[dict]] = {}
+    for event_name, subcommand, matcher, options in HOOK_EVENTS[client]:
         command = f"ardvi hook {subcommand} --client {client}"
-        events[event_name] = _merge_event(events.get(event_name), command, matcher)
+        wanted.setdefault(event_name, []).append(_desired_block(command, matcher, options))
+    for event_name, desired in wanted.items():
+        events[event_name] = _merge_event(events.get(event_name), desired)
     text = json.dumps(value, indent=2) + "\n"
     status = "created" if not path.exists() else ("current" if path.read_text(encoding="utf-8") == text else "updated")
     return status, path, text

@@ -53,7 +53,8 @@ func validateOutputSchema(t *testing.T, session *mcp.ClientSession, toolName str
 		t.Fatalf("%s: call error: %v", toolName, err)
 	}
 	if result.IsError {
-		t.Fatalf("%s: tool returned an error result: %#v", toolName, result)
+		encoded, _ := json.Marshal(result)
+		t.Fatalf("%s: tool returned an error result: %s", toolName, encoded)
 	}
 
 	contentBytes, err := json.Marshal(result.StructuredContent)
