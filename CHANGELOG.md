@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.0] - 2026-09-05
 
 ### Added
 
@@ -27,6 +27,9 @@
 - Back up the Ardvi data volume before upgrading; older binaries do not preserve
   Fabric state. Host CLI and project integrations must be upgraded along with the
   service. `ardvi update` updates the service/catalog, not the installed host CLI.
+- Restart native clients after this upgrade to refresh cached MCP output schemas
+  and background watchers. An existing Claude session may reject the new
+  bootstrap response until its MCP catalog is refreshed.
 
 ## [0.3.0] - 2026-09-05
 

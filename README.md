@@ -98,6 +98,9 @@ refresh each project's managed integration. `ardvi update` updates the shared
 service and catalog; it does not replace the host executable. Back up the data
 volume before moving from a pre-Fabric release. The next native hook replaces
 an outdated Codex bridge for the same thread.
+For the v0.4.0 upgrade, restart native clients to refresh cached MCP output
+schemas and background watchers. An older open client can reject the new
+bootstrap response even while the service and message transport are healthy.
 
 Before ending a session, ask the agent:
 
