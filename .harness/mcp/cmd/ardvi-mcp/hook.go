@@ -26,6 +26,9 @@ type hookStdin struct {
 	Cwd           string `json:"cwd"`
 	HookEventName string `json:"hook_event_name"`
 	Prompt        string `json:"prompt"`
+	Source        string `json:"source"`
+	// Set only by the explicit CLI option, never by native stdin or a message.
+	SingleOrchestrator bool `json:"-"`
 }
 
 // hookMapping is the per-(client, client session, project) file that ties a
@@ -44,6 +47,8 @@ type hookMapping struct {
 	ClientPID       int      `json:"client_pid,omitempty"`
 	ClientBirth     string   `json:"client_birth,omitempty"`
 	SeenIDs         []string `json:"seen_ids,omitempty"`
+	Superseded      bool     `json:"superseded,omitempty"`
+	EndPending      bool     `json:"end_pending,omitempty"`
 }
 
 type hookMessage struct {
@@ -80,16 +85,21 @@ func runHook(args []string) error {
 	f.SetOutput(io.Discard)
 	client := f.String("client", "", "claude|codex")
 	url := f.String("url", defaultMCPURL(), "Ardvi MCP URL")
+	single := f.Bool("single-orchestrator", false, "replace prior local Codex session for this stable agent")
 	if err := f.Parse(args[1:]); err != nil {
 		return err
 	}
 	if *client != "claude" && *client != "codex" {
 		return errors.New("--client must be claude or codex")
 	}
+	if *single && (*client != "codex" || event != "session-start") {
+		return errors.New("--single-orchestrator requires hook session-start --client codex")
+	}
 	var in hookStdin
 	if data, err := io.ReadAll(os.Stdin); err == nil {
 		_ = json.Unmarshal(data, &in) // tolerate missing/malformed stdin
 	}
+	in.SingleOrchestrator = *single
 	switch event {
 	case "session-start":
 		return hookSessionStart(os.Stdout, *client, *url, in)
@@ -187,6 +197,13 @@ func hookSessionStart(out io.Writer, client, url string, in hookStdin) error {
 }
 
 func hookSessionStartMode(out io.Writer, client, url string, in hookStdin, announce bool) error {
+	// Only a native root SessionStart can request handover. Compact/clear and
+	// prompt reconciliation must never take ownership from another conversation.
+	if client == "codex" && in.HookEventName != "" && in.HookEventName != "SessionStart" && announce {
+		return nil
+	}
+	in.SingleOrchestrator = in.SingleOrchestrator && announce &&
+		(in.Source == "" || in.Source == "startup" || in.Source == "resume")
 	projectID, projectName, err := findProject(in.Cwd)
 	if err != nil {
 		return nil // no project: nothing to register, and not an error worth reporting
@@ -195,11 +212,27 @@ func hookSessionStartMode(out io.Writer, client, url string, in hookStdin, annou
 	if err != nil {
 		return err
 	}
+	// Serialize all native starts and prompt reconciliation for this identity.
+	// A per-thread lock alone lets an old prompt race a handover.
+	agentKey := os.Getenv("ARDVI_AGENT_KEY")
+	if agentKey == "" {
+		agentKey = "main"
+	}
+	identityPath := filepath.Join(dir, "identity-"+mappingKey(client, agentKey, projectID))
+	return withMappingLock(identityPath, func() error {
+		return hookSessionStartLocked(out, client, url, in, announce, projectID, projectName, dir, agentKey)
+	})
+}
+
+func hookSessionStartLocked(out io.Writer, client, url string, in hookStdin, announce bool, projectID, projectName, dir, agentKey string) error {
 	path := filepath.Join(dir, mappingKey(client, in.SessionID, projectID)+".json")
 	var mapping hookMapping
 	changed := false
-	err = withMappingLock(path, func() error {
+	err := withMappingLock(path, func() error {
 		previous, ok := loadMapping(path)
+		if previous.Superseded && !in.SingleOrchestrator {
+			return stableRegistrationError(errors.New("native session was superseded; resume explicitly with the single-orchestrator SessionStart hook"))
+		}
 		machineID, err := machineIdentity(dir)
 		if err != nil {
 			return err
@@ -208,9 +241,21 @@ func hookSessionStartMode(out io.Writer, client, url string, in hookStdin, annou
 		if name == "" {
 			name = client + "-" + projectName
 		}
-		agentKey := os.Getenv("ARDVI_AGENT_KEY")
-		if agentKey == "" {
-			agentKey = "main"
+		if in.SingleOrchestrator {
+			if client != "codex" || in.SessionID == "" {
+				return errors.New("single-orchestrator handover requires a Codex native session ID")
+			}
+			if previous.EndPending {
+				if !matchingNativeMapping(previous, client, projectID, in.SessionID) || previous.MachineID != machineID || previous.AgentKey != agentKey {
+					return stableRegistrationError(errors.New("pending handover belongs to another identity"))
+				}
+				if err := finishCodexHandover(url, dir, path, previous); err != nil {
+					return stableRegistrationError(err)
+				}
+			}
+			if err := endPreviousCodexSessions(url, dir, projectID, machineID, agentKey, in.SessionID); err != nil {
+				return stableRegistrationError(err)
+			}
 		}
 		branch, head, dirty := gitSnapshot(in.Cwd)
 		ctx, cancel := context.WithTimeout(context.Background(), hookHTTPTimeout)
@@ -389,9 +434,8 @@ func stopCodexBridge(dir string, mapping hookMapping) {
 	}
 }
 
-// hookSessionEnd ends the mapped Ardvi session and removes the mapping file
-// regardless of whether the server call succeeds, so a dead server never
-// leaves a stale mapping that would block re-registration on the next start.
+// hookSessionEnd serializes with handover and retains recovery state until
+// the server confirms termination. Superseded mappings remain prompt fences.
 func hookSessionEnd(client, url string, in hookStdin) error {
 	projectID, _, err := findProject(in.Cwd)
 	if err != nil {
@@ -402,28 +446,41 @@ func hookSessionEnd(client, url string, in hookStdin) error {
 		return err
 	}
 	path := filepath.Join(dir, mappingKey(client, in.SessionID, projectID)+".json")
-	var mapping hookMapping
-	ok := false
-	err = withMappingLock(path, func() error {
-		mapping, ok = loadMapping(path)
-		if !ok {
-			return nil
-		}
-		return os.Remove(path)
+	prior, ok := loadMapping(path)
+	if !ok {
+		return nil
+	}
+	agentKey := prior.AgentKey
+	if agentKey == "" {
+		agentKey = "main"
+	}
+	identityPath := filepath.Join(dir, "identity-"+mappingKey(client, agentKey, projectID))
+	return withMappingLock(identityPath, func() error {
+		return withMappingLock(path, func() error {
+			mapping, ok := loadMapping(path)
+			if !ok {
+				return nil
+			}
+			if mapping.Superseded {
+				if mapping.EndPending {
+					return finishCodexHandover(url, dir, path, mapping)
+				}
+				return nil
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), hookHTTPTimeout)
+			defer cancel()
+			if _, err := callTool(ctx, url, mapping.ProjectID, "session_end", map[string]any{"session_id": mapping.ArdviSessionID}); err != nil {
+				return err
+			}
+			if client == "codex" {
+				if mapping.NativeSessionID == "" {
+					mapping.NativeSessionID = in.SessionID
+				}
+				stopCodexBridge(dir, mapping)
+			}
+			return os.Remove(path)
+		})
 	})
-	if err != nil || !ok {
-		return err
-	}
-	if client == "codex" {
-		if mapping.NativeSessionID == "" {
-			mapping.NativeSessionID = in.SessionID
-		}
-		stopCodexBridge(dir, mapping)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), hookHTTPTimeout)
-	defer cancel()
-	_, callErr := callTool(ctx, url, mapping.ProjectID, "session_end", map[string]any{"session_id": mapping.ArdviSessionID})
-	return callErr
 }
 
 func fetchInbox(ctx context.Context, url, project, sessionID string) ([]hookMessage, error) {
@@ -488,8 +545,14 @@ func printUnread(ctx context.Context, out io.Writer, url, path string, mapping *
 			return nil, err
 		}
 		if len(newIDs) > 0 {
-			mapping.SeenIDs = append(mapping.SeenIDs, newIDs...)
-			if err = saveMapping(path, *mapping); err != nil {
+			if err = withMappingLock(path, func() error {
+				current, ok := loadMapping(path)
+				if !ok || current.Superseded || current.ArdviSessionID != mapping.ArdviSessionID {
+					return nil
+				}
+				current.SeenIDs = append(current.SeenIDs, newIDs...)
+				return saveMapping(path, current)
+			}); err != nil {
 				return nil, err
 			}
 		}

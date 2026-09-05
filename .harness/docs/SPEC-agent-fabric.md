@@ -25,6 +25,12 @@ no broker, new database, network deployment, or provider launcher is required.
 - Native resume/compact reconciles idempotently. A new conversation gets a new
   session. A second live conversation cannot silently take the same inbox;
   an explicit different agent key creates an independent agent.
+- A project may explicitly set `codex_single_orchestrator: true`. A fresh
+  Codex root conversation then replaces the previous locally mapped session
+  for the same stable identity, keeping its inbox and saved handoff memory.
+  No old native transcript is imported. Native resume can explicitly transfer
+  ownership too; compact, clear and prompt reconciliation cannot. The setting
+  defaults to false and survives project updates.
 - Native subagents remain provider-owned. Ardvi never launches a client.
 - All local projects join `global://default` by default. Project communication
   remains available in `project://<uuid>`. Host-owned policy may deny global
@@ -64,6 +70,21 @@ work until reconciled by a native hook. Discovery computes offline from expiry;
 an unattended delivery adapter must not keep a crashed client advertised live.
 SessionEnd ends only the ephemeral session and releases its claims/ownership.
 Agent identity, pending inboxes, completed conversations and memory persist.
+
+In the single-orchestrator mode, the host serializes starts and ends by stable
+identity. It fences the old local mapping before calling `session_end`, retains
+pending termination for retry after a lost response, then registers the new
+session through the existing API. A late prompt cannot overwrite the fence.
+Lease keepers stop on the fenced mapping, and a delayed Codex bridge exits even
+if the initial stop signal missed its launch. No store schema or server API
+change is required. Native subagent events cannot request root registration.
+
+Tombstones have no automatic expiry: an old conversation can emit a delayed
+hook after any lease duration. They persist through late SessionEnd and are
+replaced only by an explicit native start/resume of that conversation. Pending
+ends retain their old Session ID for retry; successful session_end is idempotent
+while the server retains that session record. Missing local ownership evidence
+preserves the server conflict. Removing local state is not a recovery procedure.
 
 ## Messaging and recovery
 
@@ -143,6 +164,12 @@ Request acceptance reserves result capacity before allowing work to begin.
 
 ## Follow-up outside this local implementation
 
+- Record a live fresh-conversation handover and child-hook behavior for each
+  supported Codex version. The handover regressions use real MCP/store with
+  simulated native events and shared process liveness.
+- Define bounded host tombstone cleanup with a reliable native retirement
+  signal, and recovery if the server prunes a session whose local end is still
+  pending. Keep the fence until ownership can be established.
 - Record real client version compatibility for Codex's experimental daemon
   delivery and Claude's `asyncRewake`; deterministic transport fixtures remain
   the automated baseline.

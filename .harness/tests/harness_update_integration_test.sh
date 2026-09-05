@@ -33,6 +33,15 @@ TARGET="$target" make --no-print-directory -C "$source_repo" copy >/dev/null
 python3 "$target/.harness/scripts/manage_harness.py" verify "$target/.harness" >/dev/null
 HARNESS_REPO_ROOT="$target" python3 "$target/.harness/scripts/sync_instructions.py" >/dev/null
 [[ -f "$target/AGENTS.md" && -f "$target/CLAUDE.md" ]]
+HARNESS_REPO_ROOT="$target" python3 "$target/.harness/scripts/project_config.py" >/dev/null
+python3 - "$target/.ardvi/project.json" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+value = json.loads(path.read_text())
+value['codex_single_orchestrator'] = True
+path.write_text(json.dumps(value) + '\n')
+PY
+before_identity="$(sha256sum "$target/.ardvi/project.json")"
 
 printf 'v2\n' > "$source_repo/.harness/update-marker"
 git -C "$source_repo" add .harness/update-marker
@@ -44,6 +53,9 @@ bash "$target/.harness/scripts/update_harness.sh" > "$workspace/update.log"
 grep -Fqx 'v2' "$target/.harness/update-marker"
 grep -Fq "$v2" "$workspace/update.log"
 [[ "$(python3 "$target/.harness/scripts/manage_harness.py" show "$target/.harness" commit)" == "$v2" ]]
+HARNESS_REPO_ROOT="$target" python3 "$target/.harness/scripts/project_config.py" >/dev/null
+[[ "$before_identity" == "$(sha256sum "$target/.ardvi/project.json")" ]]
+grep -Fq 'ardvi hook session-start --client codex --single-orchestrator' "$target/.codex/hooks.json"
 
 printf '\nlocal edit\n' >> "$target/.harness/README.md"
 printf 'v3\n' > "$source_repo/.harness/update-marker"

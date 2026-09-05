@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.1] - 2026-09-05
+
+### Fixed
+
+- Projects can opt into `codex_single_orchestrator: true` so fresh Codex
+  conversations recover the same inbox even when the previous conversation's
+  lease is kept alive by a shared app-server process. Project updates preserve
+  the setting; parallel conversations retain the existing behavior by default.
+- Handover fences old hooks before ending the session and retains interrupted
+  termination for retry. Compact cannot reclaim the inbox, and delayed bridges
+  exit after handover. Failed SessionEnd keeps its local recovery mapping.
+
 ## [0.4.0] - 2026-09-05
 
 ### Added

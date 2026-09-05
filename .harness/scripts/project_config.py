@@ -148,7 +148,7 @@ def _merge_event(existing: object, desired: list[dict]) -> list:
     return result + desired
 
 
-def hooks(root: pathlib.Path, relpath: str, client: str) -> tuple[str, pathlib.Path, str]:
+def hooks(root: pathlib.Path, relpath: str, client: str, single_orchestrator: bool = False) -> tuple[str, pathlib.Path, str]:
     """Merge our SessionStart/UserPromptSubmit/SessionEnd hooks into a client's hooks file.
 
     Never removes or reorders another tool's matcher blocks or hook entries;
@@ -167,6 +167,10 @@ def hooks(root: pathlib.Path, relpath: str, client: str) -> tuple[str, pathlib.P
     wanted: dict[str, list[dict]] = {}
     for event_name, subcommand, matcher, options in HOOK_EVENTS[client]:
         command = f"ardvi hook {subcommand} --client {client}"
+        if single_orchestrator and client == "codex" and subcommand == "session-start":
+            wanted.setdefault(event_name, []).append(_desired_block(command, "^(clear|compact)$", options))
+            matcher = "^(startup|resume)$"
+            command += " --single-orchestrator"
         wanted.setdefault(event_name, []).append(_desired_block(command, matcher, options))
     for event_name, desired in wanted.items():
         events[event_name] = _merge_event(events.get(event_name), desired)
@@ -179,10 +183,13 @@ def main() -> int:
     root = pathlib.Path(os.environ["HARNESS_REPO_ROOT"]).resolve()
     try:
         value = identity(root)
+        single_orchestrator = value.get("codex_single_orchestrator", False)
+        if not isinstance(single_orchestrator, bool):
+            raise ValueError("codex_single_orchestrator must be a boolean")
         codex_status, codex_path, codex_text = codex(root, value["id"])
         claude_status, claude_path, claude_text = claude(root, value["id"])
         claude_hooks_status, claude_hooks_path, claude_hooks_text = hooks(root, ".claude/settings.json", "claude")
-        codex_hooks_status, codex_hooks_path, codex_hooks_text = hooks(root, ".codex/hooks.json", "codex")
+        codex_hooks_status, codex_hooks_path, codex_hooks_text = hooks(root, ".codex/hooks.json", "codex", single_orchestrator)
         if not codex_path.exists() or codex_path.read_text(encoding="utf-8") != codex_text:
             atomic(codex_path, codex_text)
         if not claude_path.exists() or claude_path.read_text(encoding="utf-8") != claude_text:
