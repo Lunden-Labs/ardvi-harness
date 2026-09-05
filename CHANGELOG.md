@@ -18,6 +18,9 @@
   completion of newly accepted work.
 - Native hooks replace outdated matching Codex bridges after host binary updates,
   including legacy PID files, without restarting native clients.
+- Native heartbeat and Claude inbox watchers retry temporary connection failures
+  while the verified client remains alive; expired leases still require native
+  hook reconciliation.
 
 ### Compatibility
 

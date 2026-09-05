@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,10 @@ import (
 	"testing"
 	"time"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func nativeRPCServer(t *testing.T, respond func(string, map[string]any) any) (string, *atomic.Int32) {
 	t.Helper()
@@ -297,6 +302,144 @@ func TestLeaseKeeperRenewsOnlyWithVerifiedNativeProcess(t *testing.T) {
 	}
 	if calls.Load() != 1 {
 		t.Fatalf("stale birth fingerprint renewed lease: %d calls", calls.Load())
+	}
+}
+
+func TestLeaseKeeperRecoversAfterTransientHeartbeatFailures(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	const projectID = "abababab-abab-4bab-8bab-abababababab"
+	dir := writeTestProject(t, projectID)
+	server, calls := nativeRPCServer(t, func(string, map[string]any) any { return map[string]any{} })
+	originalClient := http.DefaultClient
+	t.Cleanup(func() { http.DefaultClient = originalClient })
+	var failures atomic.Int32
+	http.DefaultClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if failures.Add(1) <= 4 {
+			return nil, &neturl.Error{Op: "Post", URL: r.URL.String(), Err: os.ErrNotExist}
+		}
+		return http.DefaultTransport.RoundTrip(r)
+	})}
+	state, err := ardviStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(state, mappingKey("codex", "native", projectID)+".json")
+	if err = saveMapping(path, hookMapping{ArdviSessionID: "session", ProjectID: projectID, Client: "codex", NativeSessionID: "native", Stable: true, ClientPID: 7, ClientBirth: "born"}); err != nil {
+		t.Fatal(err)
+	}
+	original := inspectNativeProcess
+	t.Cleanup(func() { inspectNativeProcess = original })
+	alive := true
+	inspectNativeProcess = func(pid int) (nativeProcess, string, error) {
+		if !alive {
+			return nativeProcess{}, "", os.ErrNotExist
+		}
+		return nativeProcess{PID: pid, Birth: "born"}, "codex", nil
+	}
+	var sleeps []time.Duration
+	err = hookLease("codex", server, hookStdin{SessionID: "native", Cwd: dir}, func(d time.Duration) {
+		sleeps = append(sleeps, d)
+		if d == watchInterval && calls.Load() == 1 {
+			alive = false
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failures.Load() != 5 || calls.Load() != 1 {
+		t.Fatalf("attempts = %d, successful heartbeats = %d; want 5 and 1", failures.Load(), calls.Load())
+	}
+	if len(sleeps) < 5 || sleeps[2] != watchInterval {
+		t.Fatalf("retry sleeps = %v, want bounded recovery pause after three failures", sleeps)
+	}
+}
+
+func TestWatchRecoversAfterTransientTransportFailures(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	const projectID = "acacacac-acac-4cac-8cac-acacacacacac"
+	dir := writeTestProject(t, projectID)
+	server, calls := nativeRPCServer(t, func(string, map[string]any) any { return map[string]any{"messages": []any{}} })
+	originalClient := http.DefaultClient
+	t.Cleanup(func() { http.DefaultClient = originalClient })
+	var failures atomic.Int32
+	http.DefaultClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if failures.Add(1) <= 4 {
+			return nil, &neturl.Error{Op: "Post", URL: r.URL.String(), Err: os.ErrNotExist}
+		}
+		return http.DefaultTransport.RoundTrip(r)
+	})}
+	state, err := ardviStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(state, mappingKey("codex", "native", projectID)+".json")
+	if err = saveMapping(path, hookMapping{ArdviSessionID: "session", ProjectID: projectID, Client: "codex", NativeSessionID: "native", Stable: true, ClientPID: 7, ClientBirth: "born"}); err != nil {
+		t.Fatal(err)
+	}
+	original := inspectNativeProcess
+	t.Cleanup(func() { inspectNativeProcess = original })
+	alive := true
+	inspectNativeProcess = func(pid int) (nativeProcess, string, error) {
+		if !alive {
+			return nativeProcess{}, "", os.ErrNotExist
+		}
+		return nativeProcess{PID: pid, Birth: "born"}, "codex", nil
+	}
+	err = hookWatch(io.Discard, "codex", server, hookStdin{SessionID: "native", Cwd: dir}, func(d time.Duration) {
+		if d != watchInterval {
+			t.Fatalf("watch sleep = %s, want %s", d, watchInterval)
+		}
+		if calls.Load() == 1 {
+			alive = false
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failures.Load() != 5 || calls.Load() != 1 {
+		t.Fatalf("attempts = %d, successful reads = %d; want 5 and 1", failures.Load(), calls.Load())
+	}
+}
+
+func TestLeaseAndWatchExitOnMCPRejection(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	const projectID = "adadadad-adad-4dad-8dad-adadadadadad"
+	dir := writeTestProject(t, projectID)
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var request struct {
+			ID any `json:"id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		calls.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": request.ID, "result": map[string]any{"isError": true, "content": []map[string]string{{"text": "active leased session not found; reconcile the native session"}}}})
+	}))
+	t.Cleanup(server.Close)
+	state, err := ardviStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(state, mappingKey("codex", "native", projectID)+".json")
+	if err = saveMapping(path, hookMapping{ArdviSessionID: "session", ProjectID: projectID, Client: "codex", NativeSessionID: "native", Stable: true, ClientPID: 7, ClientBirth: "born"}); err != nil {
+		t.Fatal(err)
+	}
+	original := inspectNativeProcess
+	t.Cleanup(func() { inspectNativeProcess = original })
+	inspectNativeProcess = func(pid int) (nativeProcess, string, error) {
+		return nativeProcess{PID: pid, Birth: "born"}, "codex", nil
+	}
+	if err = hookLease("codex", server.URL, hookStdin{SessionID: "native", Cwd: dir}, func(time.Duration) { t.Fatal("lease must not retry MCP rejection") }); err == nil {
+		t.Fatal("lease accepted rejected heartbeat")
+	}
+	if err = hookWatch(io.Discard, "codex", server.URL, hookStdin{SessionID: "native", Cwd: dir}, func(time.Duration) { t.Fatal("watch must not retry MCP rejection") }); err == nil {
+		t.Fatal("watch accepted rejected inbox read")
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("MCP calls = %d, want 2", calls.Load())
 	}
 }
 

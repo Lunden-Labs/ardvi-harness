@@ -168,6 +168,12 @@ releases claims and request ownership; stable agent identity, pending stable
 inbox, completed threads, and memory remain. After a service or native restart,
 a fresh conversation reconciles to the same stable agent and bootstraps again.
 
+Heartbeat and Claude inbox watchers retry temporary connection failures while
+the native process remains verified. A service outage longer than the two-minute
+session lease requires the next native hook to reconcile a new session; expired
+claims and request ownership are not revived. After updating an older host
+binary, a native prompt or restart rearms watchers that already exited.
+
 Legacy `agents_list`, `session_start`, `to`, and `scope` are compatibility-only.
 Do not mix legacy `to` or `scope` with stable Fabric destinations, and do not
 heuristically adopt a legacy name as a stable identity. Use the Fabric tools and

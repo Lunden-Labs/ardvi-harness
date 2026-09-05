@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +19,11 @@ import (
 )
 
 const watchInterval = 20 * time.Second
+
+func transientHookError(err error) bool {
+	var transport *url.Error
+	return errors.As(err, &transport)
+}
 
 type nativeProcess struct {
 	PID   int
@@ -236,12 +242,16 @@ func hookLease(client, url string, in hookStdin, sleep func(time.Duration)) erro
 			if renewErr == nil {
 				break
 			}
+			if !transientHookError(renewErr) {
+				return renewErr
+			}
 			if attempt < 2 {
 				sleep(time.Second)
 			}
 		}
 		if renewErr != nil {
-			return renewErr
+			sleep(watchInterval)
+			continue
 		}
 		sleep(watchInterval)
 	}
@@ -303,7 +313,11 @@ func hookWatch(out io.Writer, client, url string, in hookStdin, sleep func(time.
 				})
 				cancel()
 				if err != nil && !errors.Is(err, errSeenBusy) {
-					return err
+					if !transientHookError(err) {
+						return err
+					}
+					sleep(watchInterval)
+					continue
 				}
 				if text != "" {
 					return &hookWake{text: text}
