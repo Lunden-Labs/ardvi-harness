@@ -1,8 +1,10 @@
 # Harness maintainer guide
 
 The copied `.harness/` directory configures native Codex and Claude clients for
-one machine-wide Ardvi MCP container. It contains no agent launcher, web UI,
-tmux layer, fixed roles, CAO integration, or provider wrapper.
+one machine-wide Ardvi MCP container. The host CLI offers `ardvi codex` and
+`ardvi claude` shortcuts that replace themselves with the native client process.
+Codex uses YOLO mode and its local daemon; Claude keeps its normal permissions.
+There is no separate agent runtime, web UI, tmux layer, fixed roles or CAO integration.
 
 ## Lifecycle
 

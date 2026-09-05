@@ -21,7 +21,7 @@ import (
 )
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: ardvi install | init | update | service ensure|status|stop | skills list | hook <event> --client claude|codex | inbox --session ID | codex-bridge --session ID --project UUID --thread ID | serve")
+	fmt.Fprintln(os.Stderr, "usage: ardvi codex [args...] | claude [args...] | install | init | update | service ensure|status|stop | skills list | hook <event> --client claude|codex | inbox --session ID | codex-bridge --session ID --project UUID --thread ID | serve")
 }
 func localHost(value string) bool {
 	host, _, err := net.SplitHostPort(value)
@@ -129,6 +129,8 @@ func main() {
 	}
 	var err error
 	switch os.Args[1] {
+	case "codex", "claude":
+		err = launchNativeClient(os.Args[1], os.Args[2:])
 	case "install":
 		err = installRuntime(os.Args[2:], false)
 	case "init":

@@ -2,8 +2,8 @@
 
 Ardvi lets ordinary Codex and Claude Code sessions share messages, memory,
 resource claims, skills, and optional agent personas. You keep using the normal
-Codex or Claude interface. Ardvi does not start agents and has no web UI, tmux,
-or provider wrapper.
+Codex or Claude interface. `ardvi codex` and `ardvi claude` are shortcuts to those
+native clients; Ardvi does not own their session runtime.
 
 One Docker container runs for the whole computer. Project A and project B use
 the same service but receive different UUID namespaces, so their project data
@@ -171,13 +171,26 @@ UI, and native subagents. Ardvi only supplies the shared channel.
 
 ### Codex idle message delivery
 
+Run `ardvi codex` in the project to ensure the local Codex daemon is running
+and open Codex through its reported socket. This shortcut always supplies
+`--dangerously-bypass-approvals-and-sandbox` (YOLO mode). Additional native
+arguments are preserved, such as `ardvi codex -m MODEL "task description"`.
+If daemon startup or socket discovery fails, it exits without opening Codex.
+The `--remote` option is reserved by this shortcut; use `codex` directly for
+another endpoint. Plain `--help` and `--version` do not start the daemon.
+
+`ardvi claude` opens Claude Code in the current directory with your arguments
+and its normal permission settings. Both shortcuts preserve terminal input,
+output, signals and the client's exit status. They do not initialize projects
+or resume previous conversations unless you pass a native resume command.
+
 The Codex bridge needs the local app-server daemon and a conversation loaded
 in that daemon. A standalone local conversation cannot be reached through a
 separate daemon just by starting one later. Ardvi does not move or resume that
 conversation automatically; its next prompt hook can still read queued messages.
 
 With a Codex version that supports these commands, start the daemon and open
-a fresh conversation in the project:
+a fresh conversation manually in the project when using its normal permission settings:
 
 ```bash
 codex app-server daemon start && codex --remote unix://
