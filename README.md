@@ -87,11 +87,18 @@ to content agents read.
 ## Everyday commands
 
 ```bash
+ardvi codex            # Codex in YOLO mode through its local daemon
+ardvi claude           # Claude Code with its normal permission settings
 ardvi service status   # Check the shared service
 ardvi skills list      # Browse installed skills
 ardvi update           # Update CLI, MCP, skills, and this project's integration
 make update            # Same update from an initialized project
 ```
+
+`ardvi codex` ensures the Codex daemon is running, connects to its socket and
+passes `--dangerously-bypass-approvals-and-sandbox`. `ardvi claude` forwards your
+arguments unchanged. Both open the native client in the current directory;
+for example, `ardvi codex -m MODEL` or `ardvi claude --model MODEL`.
 
 Run `ardvi update` in each project that needs new integration files; outside
 an initialized project it updates only the host installation. Local project

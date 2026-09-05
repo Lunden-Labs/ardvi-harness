@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.0] - 2026-09-05
+
+### Added
+
+- `ardvi codex` ensures the local Codex daemon is running and launches the native
+  client through its socket in YOLO mode. Failed daemon startup or socket
+  discovery stops the launch. `ardvi claude` launches Claude Code with its normal
+  permission settings. Both forward native arguments and preserve the terminal,
+  current directory and exit status.
+
 ## [0.5.1] - 2026-09-05
 
 ### Fixed
