@@ -86,7 +86,6 @@ cp -a "$repo_root/.harness" "$project/.harness"
 printf '%s\n' 'ARDVI_HARNESS_SHORT_TARGETS := 1' 'include .harness/harness.mk' > "$project/Makefile"
 export HOME="$workspace/home"
 export PATH="$workspace/bin:$PATH"
-export HARNESS_SKIP_SELF_UPDATE=1
 
 make --no-print-directory -C "$project" init >/dev/null
 for skill in communication writing lets-go session-end project-context skills-list; do
@@ -103,7 +102,7 @@ make --no-print-directory -C "$project" init >/dev/null
 mkdir -p "$project/.agents/skills/project-owned"
 printf 'project-owned\n' > "$project/.agents/skills/project-owned/SKILL.md"
 printf 'outside managed block\n' >> "$project/AGENTS.md"
-make --no-print-directory -C "$project" update >/dev/null
+make --no-print-directory -C "$project" harness-bootstrap >/dev/null
 grep -Fqx 'project-owned' "$project/.agents/skills/project-owned/SKILL.md"
 grep -Fqx 'outside managed block' "$project/AGENTS.md"
 grep -Fq 'Do not run `humanizer`' "$project/.harness/skills/communication/SKILL.md"
@@ -111,7 +110,7 @@ grep -Fq 'For Russian' "$project/.harness/skills/communication/SKILL.md"
 [[ "$(make --no-print-directory -C "$project" harness-skill-path SKILL=writing)" == "$project/.harness/skills/writing/SKILL.md" ]]
 
 sed -i 's/For all user-facing communication/For altered user-facing communication/' "$project/AGENTS.md"
-if make --no-print-directory -C "$project" update >/dev/null 2>&1; then
+if make --no-print-directory -C "$project" harness-bootstrap >/dev/null 2>&1; then
   echo 'modified managed instruction block was overwritten' >&2
   exit 1
 fi

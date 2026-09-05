@@ -13,11 +13,37 @@ func defaultHarnessDir() (string, error) {
 	if value := os.Getenv("ARDVI_HARNESS_DIR"); value != "" {
 		return filepath.Abs(value)
 	}
+	if value := os.Getenv("ARDVI_DATA_DIR"); value != "" {
+		return filepath.Abs(filepath.Join(value, "harness"))
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(home, ".local", "share", "ardvi", "harness"), nil
+}
+
+func updateRelease(args []string) error {
+	harness, err := defaultHarnessDir()
+	if err != nil {
+		return err
+	}
+	script := filepath.Join(harness, ".harness", "scripts", "update_release.py")
+	if _, err := os.Stat(script); err != nil {
+		return fmt.Errorf("release updater missing at %s; run upgrade.sh from the Ardvi repository", script)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		return err
+	}
+	arguments := append([]string{script, "--bin-dir", filepath.Dir(executable)}, args...)
+	command := exec.Command("python3", arguments...)
+	command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return command.Run()
 }
 
 func runMake(dir string, environment []string, arguments ...string) error {

@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0] - 2026-09-05
+
+### Added
+
+- `ardvi update` now installs the released CLI, bundled harness, MCP service and
+  catalogs, then refreshes the current project's integration from the same
+  verified archive. `make update` delegates to it. Older CLIs can migrate with
+  the root `upgrade.sh` bootstrap command.
+- `ardvi update --replace-harness` backs up a locally patched copied harness
+  before replacing it. Normal updates refuse modified harness files. Project
+  identity, settings and custom instructions survive; source checkouts keep
+  their tracked harness. `ardvi skills update` remains service/catalog-only.
+
 ## [0.4.1] - 2026-09-05
 
 ### Fixed

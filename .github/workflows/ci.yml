@@ -25,8 +25,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y shellcheck
-          bash -n install.sh .harness/scripts/*.sh
-          shellcheck --severity=warning install.sh .harness/scripts/*.sh .harness/tests/*.sh
+          bash -n install.sh upgrade.sh .harness/scripts/*.sh
+          shellcheck --severity=warning install.sh upgrade.sh .harness/scripts/*.sh .harness/tests/*.sh
           go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           make -n help
           for test in .harness/tests/*_test.sh; do bash "$test"; done
@@ -92,7 +92,7 @@ jobs:
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go -C .harness/mcp build -trimpath \
               -ldflags="-s -w -X main.version=$VERSION -X main.commit=$GITHUB_SHA" \
               -o "$stage/ardvi" ./cmd/ardvi-mcp
-            cp install.sh "$stage/"
+            cp install.sh upgrade.sh "$stage/"
             cp -a .harness Makefile "$stage/harness/"
             cp README.md LICENSE "$stage/harness/"
             python3 "$stage/harness/.harness/scripts/manage_harness.py" record \

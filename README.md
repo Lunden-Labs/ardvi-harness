@@ -89,15 +89,25 @@ to content agents read.
 ```bash
 ardvi service status   # Check the shared service
 ardvi skills list      # Browse installed skills
-ardvi update           # Update the shared service and skill catalogs
-make update            # Refresh this project's managed harness files
+ardvi update           # Update CLI, MCP, skills, and this project's integration
+make update            # Same update from an initialized project
 ```
 
-For a host CLI upgrade, rerun `install.sh` from the new release archive, then
-refresh each project's managed integration. `ardvi update` updates the shared
-service and catalog; it does not replace the host executable. Back up the data
-volume before moving from a pre-Fabric release. The next native hook replaces
-an outdated Codex bridge for the same thread.
+Run `ardvi update` in each project that needs new integration files; outside
+an initialized project it updates only the host installation. Local project
+settings and custom instructions are preserved. To replace a temporary patch
+inside a copied `.harness`, use `ardvi update --replace-harness`; it retains a
+backup in that project.
+
+For an older CLI (before v0.5.0), run this once from the project:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lunden-Labs/ardvi-harness/main/upgrade.sh | bash
+```
+
+If that project has a modified harness, append `-s -- --replace-harness` after
+`bash`. Later updates use `ardvi update`. The next native hook replaces an
+outdated Codex bridge for the same thread.
 For the v0.4.0 upgrade, restart native clients to refresh cached MCP output
 schemas and background watchers. An older open client can reject the new
 bootstrap response even while the service and message transport are healthy.
