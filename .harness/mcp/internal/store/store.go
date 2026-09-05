@@ -15,28 +15,52 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 type Session struct {
-	ID      string    `json:"id"`
-	Project string    `json:"project"`
-	Name    string    `json:"name"`
-	Client  string    `json:"client"`
-	Task    string    `json:"task,omitempty"`
-	State   string    `json:"state"`
-	Updated time.Time `json:"updated"`
+	ID              string    `json:"id"`
+	Project         string    `json:"project"`
+	Name            string    `json:"name"`
+	Client          string    `json:"client"`
+	Task            string    `json:"task,omitempty"`
+	State           string    `json:"state"`
+	Updated         time.Time `json:"updated"`
+	AgentID         string    `json:"agent_id,omitempty"`
+	MachineID       string    `json:"machine_id,omitempty"`
+	NativeSessionID string    `json:"native_session_id,omitempty"`
+	NativeThreadID  string    `json:"native_thread_id,omitempty"`
+	ProjectName     string    `json:"project_name,omitempty"`
+	Branch          string    `json:"branch,omitempty"`
+	Head            string    `json:"head,omitempty"`
+	Dirty           bool      `json:"dirty,omitempty"`
+	LeaseExpires    time.Time `json:"lease_expires,omitempty"`
 }
 type Message struct {
-	ID          string    `json:"id"`
-	Project     string    `json:"project"`
-	Scope       string    `json:"scope"`
-	From        string    `json:"from"`
-	To          string    `json:"to,omitempty"`
-	Thread      string    `json:"thread_id"`
-	Body        string    `json:"body"`
-	AckRequired bool      `json:"ack_required,omitempty"`
-	Acked       []string  `json:"acked_by,omitempty"`
-	Created     time.Time `json:"created"`
+	ID                string    `json:"id"`
+	Project           string    `json:"project"`
+	Scope             string    `json:"scope"`
+	From              string    `json:"from"`
+	To                string    `json:"to,omitempty"`
+	Thread            string    `json:"thread_id"`
+	Body              string    `json:"body"`
+	AckRequired       bool      `json:"ack_required,omitempty"`
+	Acked             []string  `json:"acked_by,omitempty"`
+	Created           time.Time `json:"created"`
+	FromAgentID       string    `json:"from_agent_id,omitempty"`
+	ToAgentID         string    `json:"to_agent_id,omitempty"`
+	ToProjectID       string    `json:"to_project_id,omitempty"`
+	ToSessionID       string    `json:"to_session_id,omitempty"`
+	SpaceID           string    `json:"space_id,omitempty"`
+	Kind              string    `json:"kind,omitempty"`
+	CorrelationID     string    `json:"correlation_id,omitempty"`
+	IdempotencyKey    string    `json:"idempotency_key,omitempty"`
+	AuthorizationRef  string    `json:"authorization_ref,omitempty"`
+	Status            string    `json:"status,omitempty"`
+	AcceptedBy        string    `json:"accepted_by,omitempty"`
+	AcceptanceExpires time.Time `json:"acceptance_expires,omitempty"`
+	AcceptanceToken   string    `json:"acceptance_token,omitempty"`
+	ResultMessageID   string    `json:"result_message_id,omitempty"`
 }
 type Claim struct {
 	Resource string    `json:"resource"`
@@ -55,10 +79,13 @@ type Memory struct {
 	Updated  time.Time `json:"updated"`
 }
 type State struct {
-	Sessions map[string]Session `json:"sessions"`
-	Messages []Message          `json:"messages"`
-	Claims   map[string]Claim   `json:"claims"`
-	Memories map[string]Memory  `json:"memories"`
+	Sessions   map[string]Session     `json:"sessions"`
+	Messages   []Message              `json:"messages"`
+	Claims     map[string]Claim       `json:"claims"`
+	Memories   map[string]Memory      `json:"memories"`
+	Agents     map[string]agentRecord `json:"agents,omitempty"`
+	Projects   map[string]Project     `json:"projects,omitempty"`
+	GlobalDeny map[string]bool        `json:"global_deny,omitempty"`
 }
 
 type Store struct {
@@ -73,6 +100,8 @@ const (
 	maxProjectSessions = 500
 	maxProjectMessages = 1000
 	maxProjectMemories = 500
+	maxProjectAgents   = 500
+	maxProjectClaims   = 500
 )
 
 func Open(dir string) (*Store, error) {
@@ -109,7 +138,7 @@ func (s *Store) Close() error {
 }
 
 func emptyState() State {
-	return State{Sessions: map[string]Session{}, Claims: map[string]Claim{}, Memories: map[string]Memory{}}
+	return State{Sessions: map[string]Session{}, Claims: map[string]Claim{}, Memories: map[string]Memory{}, Agents: map[string]agentRecord{}, Projects: map[string]Project{}, GlobalDeny: map[string]bool{}}
 }
 
 func (s *Store) load() error {
@@ -139,6 +168,15 @@ func (s *Store) load() error {
 	}
 	if s.state.Memories == nil {
 		s.state.Memories = map[string]Memory{}
+	}
+	if s.state.Agents == nil {
+		s.state.Agents = map[string]agentRecord{}
+	}
+	if s.state.Projects == nil {
+		s.state.Projects = map[string]Project{}
+	}
+	if s.state.GlobalDeny == nil {
+		s.state.GlobalDeny = map[string]bool{}
 	}
 	return nil
 }
@@ -246,6 +284,13 @@ func (s *Store) EndSession(project, session string) error {
 			delete(s.state.Claims, key)
 		}
 	}
+	for i := range s.state.Messages {
+		message := &s.state.Messages[i]
+		if message.Status == "accepted" && message.AcceptedBy == session {
+			message.Status, message.AcceptedBy, message.AcceptanceToken = "pending", "", ""
+			message.AcceptanceExpires = time.Time{}
+		}
+	}
 	return s.commit()
 }
 func (s *Store) Sessions(project string, limit int) []Session {
@@ -254,6 +299,9 @@ func (s *Store) Sessions(project string, limit int) []Session {
 	out := []Session{}
 	for _, v := range s.state.Sessions {
 		if v.Project == project {
+			if v.AgentID != "" && v.State == "running" && !v.LeaseExpires.After(s.now().UTC()) {
+				v.State = "stale"
+			}
 			out = append(out, v)
 		}
 	}
@@ -265,14 +313,30 @@ func (s *Store) Sessions(project string, limit int) []Session {
 }
 func (s *Store) validSession(project, session string) bool {
 	v, ok := s.state.Sessions[session]
-	return ok && v.Project == project && v.State == "running"
+	return ok && v.Project == project && v.State == "running" && (v.AgentID == "" || v.LeaseExpires.After(s.now().UTC()))
 }
-func addressed(m Message, session, name string) bool {
-	return m.To == "" || m.To == "*" || m.To == session || m.To == name
+func addressed(m Message, session Session) bool {
+	if m.ToSessionID != "" {
+		return m.ToSessionID == session.ID
+	}
+	if m.ToAgentID != "" {
+		return session.AgentID != "" && m.ToAgentID == session.AgentID
+	}
+	if m.ToProjectID != "" {
+		return m.ToProjectID == session.Project
+	}
+	return m.To == "" || m.To == "*" || m.To == session.ID || m.To == session.Name
 }
-func acknowledged(m Message, session string) bool {
+func ackIdentity(session Session) string {
+	if session.AgentID != "" {
+		return session.AgentID
+	}
+	return session.ID
+}
+func acknowledged(m Message, session Session) bool {
+	identity := ackIdentity(session)
 	for _, id := range m.Acked {
-		if id == session {
+		if id == identity {
 			return true
 		}
 	}
@@ -291,21 +355,16 @@ func (s *Store) Send(project, scope, from, to, thread, body string, ack bool) (M
 	if scope != "project" && scope != "global" {
 		return Message{}, errors.New("scope must be project or global")
 	}
-	count := 0
-	for _, message := range s.state.Messages {
-		if message.Project == project {
-			count++
-		}
+	if scope == "global" && !s.globalAllowed(project) {
+		return Message{}, errors.New("global access denied for project")
 	}
-	if count >= maxProjectMessages {
-		for i, message := range s.state.Messages {
-			if message.Project == project {
-				s.state.Messages = append(s.state.Messages[:i], s.state.Messages[i+1:]...)
-				break
-			}
-		}
+	if err := s.makeMessageRoom(project); err != nil {
+		return Message{}, err
 	}
-	v := Message{ID: id(), Project: project, Scope: scope, From: from, To: to, Thread: thread, Body: body, AckRequired: ack, Created: s.now().UTC()}
+	v := Message{ID: id(), Project: project, Scope: scope, From: from, To: to, Thread: thread, Body: body, AckRequired: ack, Created: s.now().UTC(), Status: "sent"}
+	if ack {
+		v.Status = "pending"
+	}
 	if v.Thread == "" {
 		v.Thread = v.ID
 	}
@@ -316,14 +375,14 @@ func (s *Store) Inbox(project, session string, limit int) ([]Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	own, ok := s.state.Sessions[session]
-	if !ok || own.Project != project {
-		return nil, errors.New("session not found")
+	if !ok || !s.validSession(project, session) {
+		return nil, errors.New("active session not found")
 	}
 	out := []Message{}
 	for i := len(s.state.Messages) - 1; i >= 0 && len(out) < clamp(limit); i-- {
 		m := s.state.Messages[i]
-		if (m.Scope == "global" || m.Project == project) && addressed(m, session, own.Name) && !acknowledged(m, session) {
-			out = append(out, m)
+		if s.messageVisible(m, own) && addressed(m, own) && !acknowledged(m, own) {
+			out = append(out, cloneMessage(m))
 		}
 	}
 	return out, nil
@@ -336,34 +395,39 @@ func (s *Store) Ack(project, session, message string) error {
 	}
 	for i := range s.state.Messages {
 		m := &s.state.Messages[i]
-		if m.ID == message && (m.Scope == "global" || m.Project == project) {
+		if m.ID == message && s.messageVisible(*m, s.state.Sessions[session]) {
 			owner := s.state.Sessions[session]
-			if !addressed(*m, session, owner.Name) {
+			if !addressed(*m, owner) {
 				return errors.New("message is not addressed to this session")
 			}
+			identity := ackIdentity(owner)
 			for _, a := range m.Acked {
-				if a == session {
+				if a == identity {
 					return nil
 				}
 			}
-			m.Acked = append(m.Acked, session)
+			m.Acked = append(m.Acked, identity)
+			if m.Kind != "request" && (m.ToAgentID != "" || m.ToSessionID != "") {
+				m.Status = "acknowledged"
+			}
 			return s.commit()
 		}
 	}
 	return errors.New("message not found")
 }
+
 // UnreadCount returns the total number of messages visible to session that
 // are not yet acknowledged by it, unbounded by any page limit.
 func (s *Store) UnreadCount(project, session string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	own, ok := s.state.Sessions[session]
-	if !ok || own.Project != project {
+	if !ok || !s.validSession(project, session) {
 		return 0
 	}
 	count := 0
 	for _, m := range s.state.Messages {
-		if (m.Scope == "global" || m.Project == project) && addressed(m, session, own.Name) && !acknowledged(m, session) {
+		if s.messageVisible(m, own) && addressed(m, own) && !acknowledged(m, own) {
 			count++
 		}
 	}
@@ -374,8 +438,8 @@ func (s *Store) Thread(project, thread string, limit int) []Message {
 	defer s.mu.Unlock()
 	out := []Message{}
 	for _, m := range s.state.Messages {
-		if m.Thread == thread && (m.Scope == "global" || m.Project == project) {
-			out = append(out, m)
+		if m.Thread == thread && s.messageVisibleToProject(m, project) {
+			out = append(out, cloneMessage(m))
 		}
 	}
 	if len(out) > clamp(limit) {
@@ -386,7 +450,8 @@ func (s *Store) Thread(project, thread string, limit int) []Message {
 
 func (s *Store) cleanClaims(now time.Time) {
 	for k, c := range s.state.Claims {
-		if !c.Expires.After(now) {
+		owner, exists := s.state.Sessions[c.Session]
+		if !c.Expires.After(now) || !exists || owner.AgentID != "" && !s.validSession(c.Project, c.Session) {
 			delete(s.state.Claims, k)
 		}
 	}
@@ -397,11 +462,25 @@ func (s *Store) Acquire(project, session, resource string, ttl time.Duration) (C
 	if !s.validSession(project, session) {
 		return Claim{}, errors.New("active session not found")
 	}
+	if resource == "" || len(resource) > 1024 || !utf8.ValidString(resource) || strings.ContainsRune(resource, 0) {
+		return Claim{}, errors.New("resource must be valid text of 1 to 1024 bytes")
+	}
 	now := s.now().UTC()
 	s.cleanClaims(now)
 	key := claimKey(project, resource)
 	if c, ok := s.state.Claims[key]; ok && c.Session != session {
 		return Claim{}, fmt.Errorf("resource claimed by %s", c.Session)
+	}
+	if _, exists := s.state.Claims[key]; !exists {
+		count := 0
+		for _, claim := range s.state.Claims {
+			if claim.Project == project {
+				count++
+			}
+		}
+		if count >= maxProjectClaims {
+			return Claim{}, errors.New("project claim quota exceeded")
+		}
 	}
 	if ttl <= 0 || ttl > 24*time.Hour {
 		ttl = 30 * time.Minute
@@ -435,6 +514,9 @@ func (s *Store) Claims(project string) []Claim {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Resource < out[j].Resource })
+	if len(out) > 100 {
+		out = out[:100]
+	}
 	return out
 }
 
@@ -446,6 +528,17 @@ func (s *Store) PutMemory(project, scope, text string, tags []string, durable bo
 	}
 	if scope != "project" && scope != "global" {
 		return Memory{}, errors.New("scope must be project or global")
+	}
+	if len(text) == 0 || len(text) > 65536 || !utf8.ValidString(text) || strings.ContainsRune(text, 0) || len(tags) > 20 {
+		return Memory{}, errors.New("memory text or tags exceed limits")
+	}
+	for _, tag := range tags {
+		if len(tag) > 120 || !utf8.ValidString(tag) || strings.ContainsRune(tag, 0) {
+			return Memory{}, errors.New("memory text or tags exceed limits")
+		}
+	}
+	if scope == "global" && !s.globalAllowed(project) {
+		return Memory{}, errors.New("global access denied for project")
 	}
 	count := 0
 	oldest := ""
@@ -464,9 +557,9 @@ func (s *Store) PutMemory(project, scope, text string, tags []string, durable bo
 		}
 		delete(s.state.Memories, oldest)
 	}
-	m := Memory{ID: id(), Project: project, Scope: scope, Text: text, Tags: tags, Durable: durable, Updated: s.now().UTC()}
+	m := Memory{ID: id(), Project: project, Scope: scope, Text: text, Tags: append([]string(nil), tags...), Durable: durable, Updated: s.now().UTC()}
 	s.state.Memories[m.ID] = m
-	return m, s.commit()
+	return cloneMemory(m), s.commit()
 }
 func (s *Store) SearchMemory(project, query, scope string, limit int) []Memory {
 	s.mu.Lock()
@@ -477,15 +570,18 @@ func (s *Store) SearchMemory(project, query, scope string, limit int) []Memory {
 		if m.Archived {
 			continue
 		}
-		if scope == "global" && m.Scope != "global" {
-			continue
+		visible := m.Project == project && m.Scope == "project"
+		if scope == "global" {
+			visible = m.Scope == "global" && s.globalAllowed(project) && s.globalAllowed(m.Project)
+		} else if scope == "" {
+			visible = visible || m.Scope == "global" && s.globalAllowed(project) && s.globalAllowed(m.Project)
 		}
-		if scope != "global" && !(m.Scope == "global" || m.Project == project) {
+		if !visible {
 			continue
 		}
 		hay := strings.ToLower(m.Text + " " + strings.Join(m.Tags, " "))
 		if q == "" || strings.Contains(hay, q) {
-			out = append(out, m)
+			out = append(out, cloneMemory(m))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Updated.After(out[j].Updated) })
@@ -518,7 +614,7 @@ func (s *Store) ExportMemory(project string) []Memory {
 	out := []Memory{}
 	for _, m := range s.state.Memories {
 		if m.Project == project && m.Scope == "project" && m.Durable && !m.Archived {
-			out = append(out, m)
+			out = append(out, cloneMemory(m))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Updated.Before(out[j].Updated) })
@@ -550,11 +646,17 @@ func (s *Store) ImportMemory(project string, items []Memory) error {
 		return errors.New("project memory quota exceeded")
 	}
 	for _, m := range items {
-		if len(m.Text) == 0 || len(m.Text) > 65536 || len(m.Tags) > 20 {
+		if len(m.Text) == 0 || len(m.Text) > 65536 || !utf8.ValidString(m.Text) || strings.ContainsRune(m.Text, 0) || len(m.Tags) > 20 {
 			return errors.New("invalid memory import item")
+		}
+		for _, tag := range m.Tags {
+			if len(tag) > 120 || !utf8.ValidString(tag) || strings.ContainsRune(tag, 0) {
+				return errors.New("invalid memory import item")
+			}
 		}
 	}
 	for _, m := range items {
+		m.Tags = append([]string(nil), m.Tags...)
 		m.Project = project
 		m.Scope = "project"
 		if m.ID == "" {
@@ -568,6 +670,11 @@ func (s *Store) ImportMemory(project string, items []Memory) error {
 		s.state.Memories[m.ID] = m
 	}
 	return s.commit()
+}
+
+func cloneMemory(memory Memory) Memory {
+	memory.Tags = append([]string(nil), memory.Tags...)
+	return memory
 }
 
 func ReadExport(path string) ([]Memory, error) {
