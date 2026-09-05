@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -335,6 +334,13 @@ func startCodexBridge(ctx context.Context, url, mappingPath string, mapping hook
 	if err != nil {
 		return err
 	}
+	identity, err := currentBridgeIdentity()
+	if err != nil {
+		return err
+	}
+	if err = replaceOutdatedCodexBridge(filepath.Dir(mappingPath), mapping, identity); err != nil {
+		return err
+	}
 	key := strings.TrimSuffix(filepath.Base(mappingPath), ".json")
 	logFile, err := os.OpenFile(filepath.Join(filepath.Dir(mappingPath), "bridge-"+key+".log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
@@ -358,7 +364,7 @@ func startCodexBridge(ctx context.Context, url, mappingPath string, mapping hook
 }
 
 func stopCodexBridge(dir string, mapping hookMapping) {
-	pidPath := filepath.Join(dir, "bridge-"+mappingKey("codex", mapping.NativeSessionID, mapping.ProjectID)+".pid")
+	pidPath := bridgePIDPath(dir, mapping)
 	file, err := os.OpenFile(pidPath, os.O_RDWR, 0600)
 	if err != nil {
 		return
@@ -370,37 +376,17 @@ func stopCodexBridge(dir string, mapping hookMapping) {
 	} else if !errors.Is(err, syscall.EWOULDBLOCK) {
 		return
 	}
-	data, err := io.ReadAll(file)
-	if err != nil {
+	state, ok, err := readBridgePID(pidPath)
+	if err != nil || !ok {
 		return
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil || pid <= 1 {
+	if !bridgeProcessMatches(state, mapping) {
+		fmt.Fprintf(os.Stderr, "ardvi hook: refusing to stop unmatched bridge pid %d\n", state.PID)
 		return
 	}
-	if !bridgeProcessMatches(pid, mapping) {
-		fmt.Fprintf(os.Stderr, "ardvi hook: refusing to stop unmatched bridge pid %d\n", pid)
-		return
+	if err = bridgeSignal(state.PID); err != nil {
+		fmt.Fprintln(os.Stderr, "ardvi hook: stop Codex bridge:", err)
 	}
-	if process, findErr := os.FindProcess(pid); findErr == nil {
-		if signalErr := process.Signal(syscall.SIGTERM); signalErr != nil {
-			fmt.Fprintln(os.Stderr, "ardvi hook: stop Codex bridge:", signalErr)
-		}
-	}
-}
-
-func bridgeProcessMatches(pid int, mapping hookMapping) bool {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
-	if err != nil {
-		data, err = exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
-		if err != nil {
-			return false
-		}
-	}
-	command := strings.ReplaceAll(string(data), "\x00", " ")
-	return strings.Contains(command, " codex-bridge ") &&
-		strings.Contains(command, " --project "+mapping.ProjectID+" ") &&
-		strings.Contains(command, " --thread "+mapping.NativeSessionID)
 }
 
 // hookSessionEnd ends the mapped Ardvi session and removes the mapping file

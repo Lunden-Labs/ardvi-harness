@@ -154,7 +154,8 @@ for _ in {1..100}; do
   sleep 0.02
 done
 [[ -n "$pid_file" ]]
-bridge_pid="$(cat "$pid_file")"
+bridge_pid="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["pid"])' "$pid_file")"
+background_pids+=("$bridge_pid")
 kill -0 "$bridge_pid"
 printf '%s\n' "$hook_input" | "${hook_env[@]}" "$workspace/ardvi" hook session-end --client codex --url "http://127.0.0.1:$(cat "$port_file")" >/dev/null
 for _ in {1..100}; do
