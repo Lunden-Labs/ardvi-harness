@@ -55,46 +55,27 @@ Three complementary delivery layers:
    `UserPromptSubmit`, and `SessionEnd` entry — identified by its `ardvi hook `
    command prefix — into `.claude/settings.json` and `.codex/hooks.json`,
    without touching any other tool's entries in those files. `SessionStart`
-   registers the session and prints unread messages; `UserPromptSubmit` prints
-   only messages not already shown; `SessionEnd` ends the session. Codex asks
+   reconciles the stable agent and ephemeral session, then directs the model to
+   call `context_bootstrap(session_id)`; `UserPromptSubmit` reconciles prompt
+   context and surfaces only messages not already shown; `SessionEnd` ends the
+   session. Codex asks
    the user to trust project hooks the first time it runs one (`/hooks` to
    review and trust, or `--dangerously-bypass-hook-trust` for automation); this
    is a one-time step per project, not a harness bug.
 2. **The `unread` piggyback.** Tool results from `message_send`, `message_ack`,
    and `claim_*` calls carry an `unread` field, so messages surface during
    ordinary MCP calls even between hook firings.
-3. **Background delivery.** Claude Code can arm a
-   persistent `Monitor` running `ardvi inbox --session <id> --follow` to catch
-   messages that arrive mid-turn. For Codex, `SessionStart` starts a detached
-   `ardvi codex-bridge` process when the Codex app-server socket is available;
-   `SessionEnd` stops it. It polls the Ardvi inbox every 20 seconds and sends
-   labelled agent notifications through `turn/start`, waking an idle thread or
-   steering an active one. It skips subagents and unloaded threads; it never
-   resumes a thread. Non-steerable turns are retried on a later poll.
+3. **Background delivery.** Native delivery remains implementation-specific.
+   Ardvi never launches Codex, Claude, or provider-owned subagents. Delivery is
+   labelled as agent correspondence and does not acknowledge a message.
 
-The bridge discovers its Unix WebSocket socket with `codex app-server daemon
-version`; `--socket` overrides discovery. Its first frames are `initialize`
-and `initialized`, followed by `thread/read` before delivery. Notifications
-appear in the user-message transport role but explicitly identify themselves
-as Ardvi agent messages, not text typed by the user. Delivery does not acknowledge
-the message: the receiving agent still calls `message_ack`.
-
-There is one bridge per session, with a pidfile and `bridge-<key>.log` beside
-the hook mapping under `${XDG_STATE_HOME:-$HOME/.local/state}/ardvi/sessions`.
-Hooks, `inbox`, and the bridge share seen-message state. Transient connection
-errors are logged and retried with bounded backoff; a socket missing for five
-minutes stops the bridge. Set `ARDVI_CODEX_BRIDGE_DISABLE=1` before session
-start to opt out; hooks and MCP piggyback delivery remain available.
-
-To test a loaded native thread explicitly, substitute its IDs:
-
-```sh
-ardvi codex-bridge --session <ardvi-session-id> --project <project-uuid> --thread <native-thread-id> --once --text 'ARDVI BRIDGE TEST'
-```
-
-The native thread ID is the Codex `session_id` supplied to the session hook,
-not the Ardvi session ID. A successful one-shot test proves transport delivery,
-not idle wakeup; verify the latter with an inbox message while the thread is idle.
+Claude configuration starts `ardvi hook watch --client claude` at SessionStart
+and rearms it at Stop using `asyncRewake`. The one-listener lock prevents duplicate
+watchers. Codex starts its optional `codex-bridge` when the app-server daemon
+socket is available; `ARDVI_CODEX_BRIDGE_DISABLE=1` opts out. Native process
+liveness is maintained by a separate lease keeper for each verified client,
+independently of inbox delivery. See the [native delivery contract](docs/agent-protocol.md#native-delivery)
+for compatibility limits and recovery behavior.
 
 `inbox_read` remains available for catching up on history; it is not the
 primary delivery path.
@@ -102,8 +83,13 @@ primary delivery path.
 ## MCP service and persistence
 
 The service uses stateless Streamable HTTP at `127.0.0.1:8765`. Project state
-tools require `X-Ardvi-Project`; this UUID is namespace isolation, not
-authentication. The port must not be exposed beyond loopback.
+tools require `X-Ardvi-Project`; this header selects a namespace and is not
+authentication. The service trusts local processes only. Remote deployment is
+unsupported until authenticated host/session binding exists; do not expose the
+loopback port beyond the machine.
+
+See [the agent protocol](docs/agent-protocol.md) for identity,
+bootstrap, routing, ownership, and recovery semantics.
 
 Provider sessions stay native. Claims expire and `session_end` releases live
 claims. The bounded JSON state snapshot is stored in Docker volume `ardvi-data`

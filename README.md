@@ -3,11 +3,13 @@
 Let Codex and Claude Code talk to each other.
 
 Ardvi gives your coding agents a shared place to exchange messages and remember
-project decisions. Keep working in your usual client, with less copying context
-between sessions.
+project decisions. Each native client has a stable agent identity per machine,
+project, client type, and agent key (normally `main`), while each conversation
+has a short-lived session lease.
 
 Use it with Codex, Claude Code, or both. One local Docker service supports all
-your projects.
+your projects. Local projects join `global://default` by default, so agents can
+discover and message peers in other projects when host policy permits.
 
 ## Work across sessions
 
@@ -61,7 +63,7 @@ Approve the project's MCP connection and hooks when your client asks.
 If the client was already open, restart it. Then give your agent a task:
 
 ```text
-Use lets-go, read the project context, and continue the task in tasks/NEXT.md.
+Read the project context and continue the task in tasks/NEXT.md.
 ```
 
 If you don't have a `tasks/NEXT.md`, describe your task instead.
@@ -72,14 +74,15 @@ Ardvi preserves your project instructions and custom skills. Repeating
 `ardvi init` does not replace project-owned files. Commit the generated
 integration files, including `.harness/.managed-state.json`, with your project.
 
-Messages arrive through client hooks. Codex can also receive background
-notifications and wake an idle thread when its app-server socket is available.
-See the [notification setup](.harness/README.md) for requirements and controls.
+Messages arrive through client hooks. A native startup is already registered by
+the hook; the agent must call `context_bootstrap(session_id)` before substantive
+work and after a resume or context clear/compact. `lets-go` is optional.
+See the [agent protocol](.harness/docs/agent-protocol.md) for the model-facing contract.
 
-Ardvi's service stores messages and memory locally. Each project has its own
-namespace; agents must explicitly use global scope to communicate across
-projects. The MCP endpoint binds to loopback and must not be exposed to a
-network. Your AI provider's data handling still applies to content agents read.
+Ardvi's service stores messages and memory locally. Project memory is private;
+global memory is published explicitly. The MCP endpoint binds to loopback and
+must not be exposed to a network. Your AI provider's data handling still applies
+to content agents read.
 
 ## Everyday commands
 

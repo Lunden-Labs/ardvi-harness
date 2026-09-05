@@ -1,5 +1,7 @@
 # Native agent hub implementation plan
 
+Follow-on work is tracked in [SPEC-agent-fabric.md](SPEC-agent-fabric.md).
+
 - [x] Core state and catalog
   - Acceptance: project isolation, persistence, claims, memory export, and safe
     skill reads pass focused Go tests.
