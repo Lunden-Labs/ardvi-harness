@@ -66,10 +66,14 @@ func TestFabricOfflineNativeRestartAndRequestResult(t *testing.T) {
 	if self["agent_id"] != c["agent_id"] || self["project_id"] != a {
 		t.Fatalf("wrong self: %v", self)
 	}
-	for _, key := range []string{"protocol", "operating_rules", "spaces", "peers", "pending_requests", "claims", "memory"} {
+	for _, key := range []string{"protocol", "operating_rules", "spaces", "peers", "pending_requests", "claims", "memory", "message_quota"} {
 		if _, ok := boot[key]; !ok {
 			t.Fatalf("bootstrap missing %s", key)
 		}
+	}
+	quota := boot["message_quota"].(map[string]any)
+	if quota["limit"] != float64(1000) || quota["warning"] != false {
+		t.Fatalf("wrong quota context: %v", quota)
 	}
 	call(t, claude, "session_end", map[string]any{"session_id": dID})
 	peers := call(t, codex, "agents_discover", map[string]any{"client_type": "claude", "project_id": b})["agents"].([]any)

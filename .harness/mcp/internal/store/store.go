@@ -79,13 +79,14 @@ type Memory struct {
 	Updated  time.Time `json:"updated"`
 }
 type State struct {
-	Sessions   map[string]Session     `json:"sessions"`
-	Messages   []Message              `json:"messages"`
-	Claims     map[string]Claim       `json:"claims"`
-	Memories   map[string]Memory      `json:"memories"`
-	Agents     map[string]agentRecord `json:"agents,omitempty"`
-	Projects   map[string]Project     `json:"projects,omitempty"`
-	GlobalDeny map[string]bool        `json:"global_deny,omitempty"`
+	Sessions    map[string]Session     `json:"sessions"`
+	Messages    []Message              `json:"messages"`
+	Claims      map[string]Claim       `json:"claims"`
+	Memories    map[string]Memory      `json:"memories"`
+	Agents      map[string]agentRecord `json:"agents,omitempty"`
+	Projects    map[string]Project     `json:"projects,omitempty"`
+	GlobalDeny  map[string]bool        `json:"global_deny,omitempty"`
+	RetiredKeys []retiredKey           `json:"retired_keys,omitempty"`
 }
 
 type Store struct {

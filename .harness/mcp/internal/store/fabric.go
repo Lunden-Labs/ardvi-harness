@@ -444,6 +444,11 @@ func (s *Store) sendMessageLocked(project string, in SendInput) (Message, error)
 		}
 	}
 	if in.IdempotencyKey != "" {
+		for _, retired := range s.state.RetiredKeys {
+			if retired.AgentID == from.AgentID && retired.Key == in.IdempotencyKey && retired.Expires.After(s.now().UTC()) {
+				return Message{}, fmt.Errorf("idempotency key refers to expired history (message %s); no new message created", retired.MessageID)
+			}
+		}
 		for _, existing := range s.state.Messages {
 			if existing.FromAgentID != from.AgentID || existing.IdempotencyKey != in.IdempotencyKey {
 				continue
@@ -479,38 +484,6 @@ func sameSend(message Message, in SendInput) bool {
 	return message.ToAgentID == in.ToAgentID && message.ToProjectID == in.ToProjectID && message.ToSessionID == in.ToSessionID &&
 		message.SpaceID == in.SpaceID && (in.ThreadID == "" || message.Thread == in.ThreadID) && message.CorrelationID == in.CorrelationID &&
 		message.Body == in.Body && message.Kind == in.Kind && message.AuthorizationRef == in.AuthorizationRef && message.AckRequired == in.AckRequired
-}
-
-func (s *Store) makeMessageRoom(project string) error {
-	count := 0
-	for _, message := range s.state.Messages {
-		if message.Project == project {
-			count++
-		}
-	}
-	for count >= maxProjectMessages {
-		removed := false
-		for i, message := range s.state.Messages {
-			if message.Project == project && !messagePending(message) {
-				s.state.Messages = append(s.state.Messages[:i], s.state.Messages[i+1:]...)
-				count--
-				removed = true
-				break
-			}
-		}
-		if !removed {
-			return errors.New("project message quota exceeded; pending messages were preserved")
-		}
-	}
-	return nil
-}
-
-func messagePending(message Message) bool {
-	if message.Kind == "request" && message.Status == "completed" {
-		return false
-	}
-	// ponytail: project delivery stays pending without a recipient snapshot; add one if project inbox churn reaches quota.
-	return message.Status == "pending" || message.Status == "accepted" || message.AckRequired && message.Status != "acknowledged"
 }
 
 func cloneMessage(message Message) Message {
@@ -578,6 +551,16 @@ func (s *Store) RequestAccept(project, session, messageID string) (Message, erro
 			}
 			return Message{}, fmt.Errorf("request is currently accepted by session %s", message.AcceptedBy)
 		}
+		// Reserve result capacity before allowing any work to start.
+		if err := s.makeMessageRoom(project); err != nil {
+			return Message{}, err
+		}
+		for j := range s.state.Messages {
+			if s.state.Messages[j].ID == messageID {
+				message = &s.state.Messages[j]
+				break
+			}
+		}
 		message.Status, message.AcceptedBy, message.AcceptanceToken = "accepted", session, id()
 		message.AcceptanceExpires = own.LeaseExpires
 		return cloneMessage(*message), s.commit()
@@ -619,19 +602,8 @@ func (s *Store) RequestComplete(project, session, messageID, token, result strin
 		if !s.validSession(project, session) || !s.acceptanceLive(*request, s.now().UTC()) || request.AcceptedBy != session || request.AcceptanceToken == "" || request.AcceptanceToken != token {
 			return Message{}, errors.New("request completion rejected: accepting lease or fencing token is stale")
 		}
-		if err := s.makeMessageRoom(project); err != nil {
-			return Message{}, err
-		}
-		request = nil
-		for j := range s.state.Messages {
-			if s.state.Messages[j].ID == messageID {
-				request = &s.state.Messages[j]
-				break
-			}
-		}
-		if request == nil {
-			return Message{}, errors.New("request was evicted during completion")
-		}
+		// A live acceptance already reserves this result slot. Completion replaces
+		// that reservation even when ordinary message admission is full.
 		owner := s.state.Sessions[session]
 		reply := Message{
 			ID: id(), Project: project, Scope: request.Scope, From: session, Thread: request.Thread, Body: result,

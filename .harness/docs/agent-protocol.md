@@ -65,17 +65,36 @@ exclusive of stable destinations and is intentionally ephemeral. Use
 `correlation_id` when replying or delegating, and provide a sender-agent-scoped
 `idempotency_key`; retry a timed-out send with the identical payload and key.
 Reusing a key with a different payload fails.
-Deduplication lasts while the message is retained. Acknowledged/completed history
-may be evicted when the origin project's 1,000-message quota needs room; a key
-from evicted history is no longer reserved. Quota exhaustion returns an error
-when only pending messages remain.
+Each origin project has 1,000 slots, including reservations for results of work
+accepted by that project. `request_accept` reserves a slot before execution;
+`request_complete` consumes it even when ordinary admission is full. Bootstrap
+`message_quota` reports stored messages, reserved results, available slots,
+retired keys and a warning at 80% usage. Older snapshots may be overcommitted;
+existing accepted work can complete, but new admission waits for capacity.
+Reservations cover message-count capacity; filesystem errors and the global
+64 MiB snapshot ceiling can still prevent persistence.
+
+Modern project-inbox and broadcast informational messages retain for 30 days.
+Collection runs lazily on successful sends/acceptance, and respects key-receipt
+capacity. Pending direct messages, unfinished requests and legacy pending
+correspondence never expire automatically. Under pressure, acknowledged history
+and completed requests whose results have been acknowledged can retire. Full
+queues return an error without deleting pending work or partially evicting history.
+Publish lasting decisions into memory or repository documentation.
+
+Deduplication lasts while a message is retained. On eviction, its key is retained
+as a receipt for another 30 days, capped at 10,000 receipts per origin project.
+Retries against that receipt return an explicit expired-history error and create
+nothing. Resolve the original outcome before choosing a new key. After the
+receipt expires the key can be reused; never assume indefinite deduplication.
+If receipts reach their cap, keyed history stays stored until capacity is available.
 
 Stable messages wait while a recipient is offline. Ardvi does not start a
 client. Delivery is separate from `message_ack`, and ACK is separate from work
 completion. After processing receipt, call `message_ack`; it survives restart.
 An acknowledged request remains pending until it is completed. Broadcast is
-informational and never assigns work. Quota handling preserves pending messages;
-it does not evict them to make room.
+informational and never assigns work. Quota handling preserves pending direct messages and unfinished work;
+shared informational delivery is limited by its documented retention period.
 
 ### Example: a Core agent delegates to an offline SDK Claude agent
 
@@ -171,7 +190,10 @@ It never renews leases itself. This path requires a Claude version supporting
 
 Codex uses its optional experimental app-server bridge when the daemon socket
 is available. The bridge follows the current Ardvi mapping for its native thread
-and retries delivery that the client cannot currently accept. Set
+and retries delivery that the client cannot currently accept. After a host binary
+upgrade, the next SessionStart/prompt hook replaces an outdated matching bridge;
+PID birth, command, project/thread and binary identity checks protect unrelated
+processes. Legacy PID records are supported. Native clients remain running. Set
 `ARDVI_CODEX_BRIDGE_DISABLE=1` to disable it. Without background delivery,
 prompt hooks and MCP inbox reads remain available. Ardvi never launches or
 resumes a client conversation to deliver a queued message.

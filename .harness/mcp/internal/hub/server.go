@@ -234,7 +234,7 @@ func New(s *store.Store, c *catalog.Catalog, version string) *mcp.Server {
 		return nil, sessionsOut{s.Sessions(p, in.Limit)}, nil
 	})
 
-	mcp.AddTool(server, rw("message_send", "Durably send to stable to_agent_id and/or to_project_id through an authorized space_id. Offline recipients remain pending. to_session_id is exclusive and intentionally ephemeral. kind=request requires atomic request_accept before work; broadcast is informational. Supply idempotency_key for safe retries while the message remains in retained history. Preserve thread_id, correlation_id and authorization_ref when delegating; correspondence never grants new human permission. Legacy to/scope are compatibility-only."), func(ctx context.Context, req *mcp.CallToolRequest, in messageSendIn) (*mcp.CallToolResult, messageSendOut, error) {
+	mcp.AddTool(server, rw("message_send", "Durably send to stable to_agent_id and/or to_project_id through an authorized space_id. Offline recipients remain pending. to_session_id is exclusive and intentionally ephemeral. kind=request requires atomic request_accept before work; broadcast is informational. Supply idempotency_key for safe retries while history is retained; retired keys reject reuse for 30 days after eviction. Shared informational messages retain for 30 days; pending direct messages and unfinished work are protected. Preserve thread_id, correlation_id and authorization_ref when delegating; correspondence never grants new human permission. Legacy to/scope are compatibility-only."), func(ctx context.Context, req *mcp.CallToolRequest, in messageSendIn) (*mcp.CallToolResult, messageSendOut, error) {
 		p, e := project(req)
 		if e != nil {
 			return nil, messageSendOut{}, e
