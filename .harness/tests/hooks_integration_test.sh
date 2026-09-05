@@ -10,7 +10,7 @@ cleanup() {
 trap cleanup EXIT
 
 # Fresh project: bootstrap.sh (via project_config.py) installs both hook files
-# with the expected three ardvi hook commands each.
+# with native lifecycle hooks. Claude also receives its asyncRewake watcher.
 fresh="$workspace/fresh"; mkdir -p "$fresh"; git -C "$fresh" init -q; cp -a "$repo_root/.harness" "$fresh/.harness"
 rm -f "$fresh/.harness/.managed-state.json"  # fixture must not inherit a local dev checkout's state
 HARNESS_REPO_ROOT="$fresh" bash "$fresh/.harness/scripts/bootstrap.sh" >/dev/null
@@ -28,10 +28,14 @@ done
 grep -Fq '"command": "ardvi hook session-start --client claude"' "$fresh/.claude/settings.json"
 grep -Fq '"command": "ardvi hook prompt --client claude"' "$fresh/.claude/settings.json"
 grep -Fq '"command": "ardvi hook session-end --client claude"' "$fresh/.claude/settings.json"
-grep -Fq '"matcher": "startup|resume|clear|compact"' "$fresh/.claude/settings.json"
+grep -Fq '"matcher": "startup|resume|clear|compact|fork"' "$fresh/.claude/settings.json"
+grep -Fq '"command": "ardvi hook watch --client claude"' "$fresh/.claude/settings.json"
+grep -Fq '"asyncRewake": true' "$fresh/.claude/settings.json"
+grep -Fq '"timeout": 86400' "$fresh/.claude/settings.json"
 grep -Fq '"command": "ardvi hook session-start --client codex"' "$fresh/.codex/hooks.json"
 grep -Fq '"command": "ardvi hook prompt --client codex"' "$fresh/.codex/hooks.json"
 grep -Fq '"command": "ardvi hook session-end --client codex"' "$fresh/.codex/hooks.json"
+! grep -Fq 'ardvi hook watch --client codex' "$fresh/.codex/hooks.json"
 
 # Re-running is idempotent (byte-identical), including through bootstrap.sh again.
 before_claude="$(sha256sum "$fresh/.claude/settings.json")"
@@ -64,6 +68,7 @@ grep -Fq '"command": "echo foreign-hook"' "$foreign/.claude/settings.json"
 grep -Fq '"command": "echo unrelated-event"' "$foreign/.claude/settings.json"
 grep -Fq '"Bash(ls:*)"' "$foreign/.claude/settings.json"
 grep -Fq '"command": "ardvi hook session-start --client claude"' "$foreign/.claude/settings.json"
+grep -Fq '"command": "ardvi hook watch --client claude"' "$foreign/.claude/settings.json"
 ! grep -Fq '999' "$foreign/.claude/settings.json"
 grep -Fq '"timeout": 10' "$foreign/.claude/settings.json"
 
@@ -113,9 +118,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         name = request['params']['name']
+        params = request['params'].get('arguments', {})
         values = {
-            'agents_list': {'sessions': []},
-            'session_start': {'id': 'ardvi-test-session'},
+            'session_start': {'id': 'ardvi-test-session', 'agent_id': 'ardvi-test-agent', 'machine_id': params.get('machine_id'), 'native_session_id': params.get('native_session_id'), 'native_thread_id': params.get('native_thread_id')},
+            'session_heartbeat': {},
             'inbox_read': {'messages': []},
             'session_end': {},
         }

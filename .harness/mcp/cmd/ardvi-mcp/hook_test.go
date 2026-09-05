@@ -65,7 +65,7 @@ func TestHookSessionStartRegistersAndWritesMapping(t *testing.T) {
 	if err := hookSessionStart(&out, "codex", url, in); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "name=hooktest-a") || !strings.Contains(out.String(), "do not call session_start again") {
+	if !strings.Contains(out.String(), "stable agent=") || !strings.Contains(out.String(), "context_bootstrap(session_id=") {
 		t.Fatalf("missing registration paragraph: %s", out.String())
 	}
 
@@ -74,7 +74,7 @@ func TestHookSessionStartRegistersAndWritesMapping(t *testing.T) {
 	if !ok {
 		t.Fatal("mapping was not written")
 	}
-	if mapping.Name != "hooktest-a" || mapping.ProjectID != projectID || mapping.ArdviSessionID == "" || mapping.NativeSessionID != "client-sess-1" {
+	if mapping.Name != "hooktest-a" || mapping.ProjectID != projectID || mapping.ArdviSessionID == "" || mapping.NativeSessionID != "client-sess-1" || !mapping.Stable || mapping.MachineID == "" || mapping.AgentID == "" {
 		t.Fatalf("bad mapping: %+v", mapping)
 	}
 }

@@ -156,19 +156,20 @@ func codexBridgePoll(ctx context.Context, options codexBridgeOptions, dir, key, 
 		_, err := codexDeliver(ctx, socket, options.thread, text)
 		return err
 	}
-	seenPath := filepath.Join(dir, "inbox-"+options.session+".json")
+	session, mapping := codexBridgeSession(dir, key, options)
+	seenPath := filepath.Join(dir, "inbox-"+session+".json")
 	var legacy []string
-	if mapping, ok := loadMapping(filepath.Join(dir, key+".json")); ok {
+	if mapping != nil {
 		legacy = mapping.SeenIDs
 	}
 	err := withSeen(seenPath, legacy, func(seen map[string]bool) ([]string, error) {
 		fetchCtx, cancel := context.WithTimeout(ctx, hookHTTPTimeout)
-		messages, err := fetchInbox(fetchCtx, options.url, options.project, options.session)
+		messages, err := fetchInbox(fetchCtx, options.url, options.project, session)
 		cancel()
 		if err != nil {
 			return nil, err
 		}
-		text, newIDs := formatNewMessages(options.session, messages, seen)
+		text, newIDs := formatNewMessages(session, messages, seen)
 		if len(newIDs) == 0 {
 			return nil, nil
 		}
@@ -188,6 +189,23 @@ func codexBridgePoll(ctx context.Context, options codexBridgeOptions, dir, key, 
 		return nil
 	}
 	return err
+}
+
+// codexBridgeSession follows a reconciled Ardvi session only when the mapping
+// proves it belongs to this bridge's native Codex thread and Project. Manual
+// --once/--text calls keep their explicit session argument.
+func codexBridgeSession(dir, key string, options codexBridgeOptions) (string, *hookMapping) {
+	mapping, ok := loadMapping(filepath.Join(dir, key+".json"))
+	if !ok || !matchingNativeMapping(mapping, "codex", options.project, options.thread) || mapping.ArdviSessionID == "" {
+		return options.session, nil
+	}
+	if !mapping.Stable || options.once {
+		if mapping.ArdviSessionID == options.session {
+			return options.session, &mapping
+		}
+		return options.session, nil
+	}
+	return mapping.ArdviSessionID, &mapping
 }
 
 func resolveCodexSocket(ctx context.Context, override string) (string, error) {
