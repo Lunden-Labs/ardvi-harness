@@ -20,6 +20,8 @@ help_output="$(make -C "$fixture" help 2>&1)"
 [[ "$help_output" == *"product help"* ]]
 [[ "$help_output" != *"overriding recipe"* ]]
 make -C "$fixture" -n harness-init >/dev/null
+update_command="$(make --no-print-directory -C "$fixture" -n harness-update)"
+[[ "$update_command" == "ardvi update --project \"$fixture\"" ]]
 make -C "$fixture" -n harness-skill-path SKILL=writing >/dev/null
 make -C "$fixture" -n harness-up >/dev/null
 make -C "$fixture" -n harness-skills >/dev/null

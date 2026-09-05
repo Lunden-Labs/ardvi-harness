@@ -8,8 +8,8 @@ tmux layer, fixed roles, CAO integration, or provider wrapper.
 
 - `make init` merges project instructions/configuration and ensures the already
   installed global service is running.
-- `make update` safely refreshes the managed harness copy, merges project files,
-  and updates the global MCP image and every managed skill.
+- `make update` delegates to `ardvi update`: it installs the released CLI,
+  bundle, MCP image and skills, then refreshes this project's integration.
 - `make up` idempotently ensures the global Compose service is running.
 - `make down` stops that machine-wide service and affects every project.
 - `make skills` lists the catalog reported by the running MCP service.
@@ -26,7 +26,7 @@ writes the state file deterministically (sorted keys, stable indent, trailing
 newline) so it diffs cleanly; it records the installed commit and a checksum
 of every managed file, including `LICENSE`, and `make update` uses it to
 detect local edits before replacing anything. A fresh clone that is missing
-the state file cannot self-update.
+the state file requires `ardvi update --replace-harness`, which retains a backup.
 
 ## Project files
 
@@ -124,17 +124,18 @@ Tagging `v*` runs `.github/workflows/ci.yml`. It publishes:
 The host binary embeds its version and release base URL. `ardvi install` uses
 the matching release manifest; `ardvi update` and `ardvi skills update` use the
 latest manifest. Persistent Compose metadata is promoted only after the new
-service becomes healthy. Service/catalog updates do not replace the host CLI;
-rerun the new archive's installer for that step and refresh project integrations.
-Back up the data volume first: older service binaries cannot preserve Fabric
-records. Native hooks replace outdated matching Codex bridge processes on their
-next invocation after a host binary upgrade.
+service becomes healthy. `ardvi update` verifies the platform archive and uses
+its installer to update the host, then refreshes the current project from that
+same release. Source checkouts keep their tracked harness. `ardvi skills update`
+retains its service/catalog-only behavior. Older CLIs can bootstrap the unified
+updater with the root `upgrade.sh`. Native hooks replace outdated matching Codex
+bridge processes on their next invocation after a host binary upgrade.
 
 Before tagging:
 
 ```bash
 make harness-upstream-lock
-bash -n install.sh .harness/scripts/*.sh
+bash -n install.sh upgrade.sh .harness/scripts/*.sh
 make -n help
 go -C .harness/mcp test -race ./...
 go -C .harness/mcp vet ./...

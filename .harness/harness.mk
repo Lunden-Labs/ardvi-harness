@@ -9,7 +9,7 @@ harness-help:
 	@echo "ARDVI harness"
 	@echo "  make harness-copy [TARGET=/path]  Copy harness into a Git root"
 	@echo "  make harness-init [PROMPT='...']  Initialize native Codex/Claude integration"
-	@echo "  make harness-update     Update harness, MCP image, and every managed skill"
+	@echo "  make harness-update     Update CLI, project harness, MCP image, and skills"
 	@echo "  make harness-up         Ensure the machine-wide Ardvi MCP service is running"
 	@echo "  make harness-down       Stop the machine-wide service (affects all projects)"
 	@echo "  make harness-status     Show hub status and installed revisions"
@@ -30,10 +30,7 @@ harness-init:
 	@bash "$(ARDVI_HARNESS_SCRIPTS_DIR)/doctor.sh"
 
 harness-update:
-	@bash "$(ARDVI_HARNESS_SCRIPTS_DIR)/update_harness.sh"
-	@bash "$(ARDVI_HARNESS_SCRIPTS_DIR)/bootstrap.sh"
-	@ardvi update
-	@bash "$(ARDVI_HARNESS_SCRIPTS_DIR)/doctor.sh"
+	@ardvi update --project "$(ARDVI_HARNESS_PROJECT_ROOT)"
 
 harness-up:
 	@bash "$(ARDVI_HARNESS_SCRIPTS_DIR)/server.sh"

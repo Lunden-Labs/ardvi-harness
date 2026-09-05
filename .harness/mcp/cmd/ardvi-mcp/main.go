@@ -140,7 +140,7 @@ func main() {
 		}
 		err = projectInit(os.Args[3:])
 	case "update":
-		err = installRuntime(os.Args[2:], true)
+		err = updateRelease(os.Args[2:])
 	case "service":
 		err = serviceCommand(os.Args[2:])
 	case "skills":
