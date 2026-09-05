@@ -53,7 +53,8 @@ func call(t *testing.T, session *mcp.ClientSession, name string, args map[string
 		t.Fatalf("%s: %v", name, err)
 	}
 	if result.IsError {
-		t.Fatalf("%s failed: %#v", name, result)
+		encoded, _ := json.Marshal(result)
+		t.Fatalf("%s failed: %s", name, encoded)
 	}
 	b, err := json.Marshal(result.StructuredContent)
 	if err != nil {
