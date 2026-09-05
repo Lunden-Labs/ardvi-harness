@@ -30,7 +30,7 @@ func launchNativeClient(client string, args []string) error {
 		defer cancel()
 		// Codex owns daemon startup and serializes concurrent starts; this is idempotent.
 		start := exec.CommandContext(ctx, binary, "app-server", "daemon", "start")
-		start.Stdout, start.Stderr = os.Stdout, os.Stderr
+		start.Stderr = os.Stderr
 		if err := start.Run(); err != nil {
 			return fmt.Errorf("start Codex daemon: %w", err)
 		}

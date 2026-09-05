@@ -54,6 +54,7 @@ args = sys.argv[1:]
 with open(os.environ['LAUNCH_CALLS'], 'a') as f:
     f.write(json.dumps({'args': args, 'cwd': os.getcwd()}) + '\n')
 if args == ['app-server', 'daemon', 'start']:
+    print('daemon internal status')
     sys.exit(1 if os.environ['LAUNCH_FAILURE'] == 'start' else 0)
 if args == ['app-server', 'daemon', 'version']:
     print(json.dumps({'socketPath': os.environ['LAUNCH_SOCKET'] + ('.missing' if os.environ['LAUNCH_FAILURE'] == 'socket' else '')}))
@@ -115,6 +116,9 @@ sys.exit(23)
 			}
 			if tc.exit == 23 && !strings.Contains(string(output), "native output") {
 				t.Fatalf("native stdout lost: %s", output)
+			}
+			if strings.Contains(string(output), "daemon internal status") {
+				t.Fatalf("daemon setup output leaked into native terminal: %s", output)
 			}
 		})
 	}
