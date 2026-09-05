@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -51,6 +52,7 @@ func writeTestProject(t *testing.T, id string) string {
 }
 
 func TestHookSessionStartRegistersAndWritesMapping(t *testing.T) {
+	t.Setenv("ARDVI_CODEX_BRIDGE_DISABLE", "1")
 	url := newHookTestServer(t)
 	const projectID = "11111111-1111-4111-8111-111111111111"
 	dir := writeTestProject(t, projectID)
@@ -72,7 +74,7 @@ func TestHookSessionStartRegistersAndWritesMapping(t *testing.T) {
 	if !ok {
 		t.Fatal("mapping was not written")
 	}
-	if mapping.Name != "hooktest-a" || mapping.ProjectID != projectID || mapping.ArdviSessionID == "" {
+	if mapping.Name != "hooktest-a" || mapping.ProjectID != projectID || mapping.ArdviSessionID == "" || mapping.NativeSessionID != "client-sess-1" {
 		t.Fatalf("bad mapping: %+v", mapping)
 	}
 }
@@ -118,6 +120,14 @@ func TestHookPromptPrintsUnseenOnceThenNothing(t *testing.T) {
 	if strings.Count(first.String(), "Ardvi MCP message id=") != 1 {
 		t.Fatalf("expected exactly one message printed: %s", first.String())
 	}
+	stateDir, err := ardviStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen, err := loadSeen(filepath.Join(stateDir, "inbox-"+mappingSessionID(t, "claude", "client-sess-2", projectID)+".json"))
+	if err != nil || len(seen) != 1 {
+		t.Fatalf("shared seen state = %#v, %v", seen, err)
+	}
 
 	var second bytes.Buffer
 	if err = hookPrompt(&second, "claude", url, in); err != nil {
@@ -128,7 +138,21 @@ func TestHookPromptPrintsUnseenOnceThenNothing(t *testing.T) {
 	}
 }
 
+func mappingSessionID(t *testing.T, client, native, project string) string {
+	t.Helper()
+	dir, err := ardviStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mapping, ok := loadMapping(filepath.Join(dir, mappingKey(client, native, project)+".json"))
+	if !ok {
+		t.Fatal("mapping missing")
+	}
+	return mapping.ArdviSessionID
+}
+
 func TestHookSessionEndDeletesMapping(t *testing.T) {
+	t.Setenv("ARDVI_CODEX_BRIDGE_DISABLE", "1")
 	url := newHookTestServer(t)
 	const projectID = "33333333-3333-4333-8333-333333333333"
 	dir := writeTestProject(t, projectID)
@@ -155,6 +179,7 @@ func TestHookSessionEndDeletesMapping(t *testing.T) {
 }
 
 func TestHookCommandNeverFailsOnServerDown(t *testing.T) {
+	t.Setenv("ARDVI_CODEX_BRIDGE_DISABLE", "1")
 	const projectID = "44444444-4444-4444-8444-444444444444"
 	dir := writeTestProject(t, projectID)
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
@@ -243,5 +268,21 @@ func TestInboxLoopPrintsOnceThenNothing(t *testing.T) {
 	}
 	if second.String() != "" {
 		t.Fatalf("expected nothing on repeat inbox call, got: %s", second.String())
+	}
+}
+
+func TestInboxSkipsImmediatelyWhenBridgeOwnsSeenState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "inbox-session.json")
+	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	if err = inboxOnce(&bytes.Buffer{}, "http://127.0.0.1:1", "project", "session", path); err != nil {
+		t.Fatalf("busy seen state should be a no-op, got %v", err)
 	}
 }

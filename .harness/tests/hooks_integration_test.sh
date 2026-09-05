@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-workspace="$(mktemp -d)"; trap 'rm -rf "$workspace"' EXIT
+workspace="$(mktemp -d)"
+background_pids=()
+cleanup() {
+  for pid in "${background_pids[@]}"; do kill "$pid" 2>/dev/null || true; done
+  rm -rf "$workspace"
+}
+trap cleanup EXIT
 
 # Fresh project: bootstrap.sh (via project_config.py) installs both hook files
 # with the expected three ardvi hook commands each.
@@ -74,5 +80,90 @@ fi
 grep -Fq 'ERROR' "$workspace/broken.log"
 [[ "$before" == "$(sha256sum "$broken/.codex/hooks.json")" ]]
 [[ ! -e "$broken/.claude/settings.json" ]]
+
+# A Codex SessionStart launches one detached bridge against the daemon socket;
+# SessionEnd stops it. The disable flag suppresses autostart. Both services are
+# local fakes so this test cannot connect to a real Codex or Ardvi session.
+(cd "$repo_root/.harness/mcp" && go build -o "$workspace/ardvi" ./cmd/ardvi-mcp)
+socket="$workspace/codex.sock"
+python3 - "$socket" <<'PY' &
+import socket, sys
+s = socket.socket(socket.AF_UNIX)
+s.bind(sys.argv[1])
+s.listen()
+while True:
+    conn, _ = s.accept()
+    conn.close()
+PY
+background_pids+=("$!")
+while [[ ! -S "$socket" ]]; do sleep 0.02; done
+
+mkdir -p "$workspace/bin"
+cat > "$workspace/bin/codex" <<'SH'
+#!/usr/bin/env bash
+printf '{"status":"running","socketPath":"%s"}\n' "$FAKE_CODEX_SOCKET"
+SH
+chmod +x "$workspace/bin/codex"
+
+port_file="$workspace/mcp-port"
+python3 - "$port_file" <<'PY' &
+import json, sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        name = request['params']['name']
+        values = {
+            'agents_list': {'sessions': []},
+            'session_start': {'id': 'ardvi-test-session'},
+            'inbox_read': {'messages': []},
+            'session_end': {},
+        }
+        body = json.dumps({'jsonrpc': '2.0', 'id': request['id'], 'result': {
+            'structuredContent': values[name], 'isError': False,
+        }}).encode()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *_): pass
+server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+open(sys.argv[1], 'w').write(str(server.server_port))
+server.serve_forever()
+PY
+background_pids+=("$!")
+while [[ ! -s "$port_file" ]]; do sleep 0.02; done
+
+runtime="$workspace/runtime"; mkdir -p "$runtime/.ardvi"
+printf '{"id":"11111111-1111-4111-8111-111111111111","name":"runtime"}\n' > "$runtime/.ardvi/project.json"
+state="$workspace/state"
+hook_env=(env "PATH=$workspace/bin:$PATH" "FAKE_CODEX_SOCKET=$socket" "XDG_STATE_HOME=$state" "ARDVI_SESSION_NAME=bridge-test")
+hook_input="{\"session_id\":\"native-thread\",\"cwd\":\"$runtime\"}"
+printf '%s\n' "$hook_input" | "${hook_env[@]}" "$workspace/ardvi" hook session-start --client codex --url "http://127.0.0.1:$(cat "$port_file")" >/dev/null
+pid_file=""
+for _ in {1..100}; do
+  pid_file="$(find "$state/ardvi/sessions" -name 'bridge-*.pid' -size +0c -print -quit 2>/dev/null || true)"
+  [[ -n "$pid_file" ]] && break
+  sleep 0.02
+done
+[[ -n "$pid_file" ]]
+bridge_pid="$(cat "$pid_file")"
+kill -0 "$bridge_pid"
+printf '%s\n' "$hook_input" | "${hook_env[@]}" "$workspace/ardvi" hook session-end --client codex --url "http://127.0.0.1:$(cat "$port_file")" >/dev/null
+for _ in {1..100}; do
+  [[ ! -s "$pid_file" ]] && break
+  sleep 0.02
+done
+if [[ -s "$pid_file" ]]; then
+  ps -o pid,ppid,stat,args -p "$bridge_pid" >&2 || true
+  cat "$state"/ardvi/sessions/bridge-*.log >&2 || true
+  echo 'SessionEnd did not stop Codex bridge' >&2
+  exit 1
+fi
+
+disabled_input="{\"session_id\":\"native-disabled\",\"cwd\":\"$runtime\"}"
+printf '%s\n' "$disabled_input" | ARDVI_CODEX_BRIDGE_DISABLE=1 "${hook_env[@]}" "$workspace/ardvi" hook session-start --client codex --url "http://127.0.0.1:$(cat "$port_file")" >/dev/null
+[[ -z "$(find "$state/ardvi/sessions" -name 'bridge-*.pid' -size +0c -print -quit 2>/dev/null || true)" ]]
 
 echo "hooks integration: PASS"

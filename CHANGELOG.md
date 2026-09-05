@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0] - 2026-09-05
+
+### Added
+
+- `ardvi codex-bridge` delivers labelled Ardvi inbox notifications to loaded
+  native Codex threads through the app-server Unix WebSocket, with shared
+  deduplication, reconnect backoff, and one bridge per session.
+- Codex session hooks start and stop the bridge; set
+  `ARDVI_CODEX_BRIDGE_DISABLE=1` to disable automatic startup. `doctor.sh`
+  checks daemon discovery and socket availability.
+
 ## [0.2.1] - 2026-09-05
 
 ### Added

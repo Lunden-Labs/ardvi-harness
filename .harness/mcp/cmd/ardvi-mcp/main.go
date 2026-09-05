@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -20,7 +21,7 @@ import (
 )
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: ardvi install | init | update | service ensure|status|stop | skills list | hook <event> --client claude|codex | inbox --session ID | serve")
+	fmt.Fprintln(os.Stderr, "usage: ardvi install | init | update | service ensure|status|stop | skills list | hook <event> --client claude|codex | inbox --session ID | codex-bridge --session ID --project UUID --thread ID | serve")
 }
 func localHost(value string) bool {
 	host, _, err := net.SplitHostPort(value)
@@ -152,6 +153,10 @@ func main() {
 		err = hookCommand(os.Args[2:])
 	case "inbox":
 		err = inboxCommand(os.Args[2:])
+	case "codex-bridge":
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		err = runCodexBridge(ctx, os.Args[2:])
+		stop()
 	case "serve":
 		err = serve(os.Args[2:])
 	case "memory-export":
