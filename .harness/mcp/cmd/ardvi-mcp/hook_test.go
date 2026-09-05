@@ -51,6 +51,31 @@ func writeTestProject(t *testing.T, id string) string {
 	return dir
 }
 
+func TestCodexWithoutDaemonReportsDegradedDelivery(t *testing.T) {
+	t.Setenv("ARDVI_CODEX_BRIDGE_DISABLE", "")
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "codex"), []byte("#!/bin/sh\nexit 1\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	url := newHookTestServer(t)
+	dir := writeTestProject(t, "11111111-1111-4111-8111-111111111111")
+	var out bytes.Buffer
+	if err := hookSessionStart(&out, "codex", url, hookStdin{SessionID: "no-daemon", Cwd: dir, HookEventName: "SessionStart"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"stable agent=", "Ardvi Codex delivery degraded:", "next prompt hook", "codex --remote unix://"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q in hook output: %s", want, out.String())
+		}
+	}
+	t.Setenv("ARDVI_CODEX_BRIDGE_DISABLE", "1")
+	if err := startCodexBridge(context.Background(), url, "", hookMapping{}); err != nil {
+		t.Fatalf("explicitly disabled bridge should remain quiet: %v", err)
+	}
+}
+
 func TestHookSessionStartRegistersAndWritesMapping(t *testing.T) {
 	t.Setenv("ARDVI_CODEX_BRIDGE_DISABLE", "1")
 	url := newHookTestServer(t)

@@ -47,7 +47,10 @@ PY
   then
     echo "OK       Codex app-server daemon and bridge socket"
   else
-    echo "OPTIONAL Codex bridge unavailable (app-server daemon or socket missing)"
+    echo "DEGRADED Codex idle delivery unavailable (app-server daemon or socket missing)"
+    echo "HINT     Start: codex app-server daemon start"
+    echo "HINT     Open a fresh daemon-backed conversation: codex --remote unix://"
+    echo "HINT     Existing local conversations receive queued messages on their next prompt"
   fi
 fi
 
