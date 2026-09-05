@@ -143,6 +143,11 @@ func runCodexBridge(ctx context.Context, args []string) error {
 	backoff := time.Second
 	var missingSince time.Time
 	for {
+		// The process may start after handover tried to signal its PID file.
+		if mapping, ok := loadMapping(filepath.Join(dir, key+".json")); ok &&
+			matchingNativeMapping(mapping, "codex", options.project, options.thread) && mapping.Superseded {
+			return nil
+		}
 		socket, resolveErr := resolveCodexSocket(ctx, options.socket)
 		if resolveErr != nil {
 			if ctx.Err() != nil {

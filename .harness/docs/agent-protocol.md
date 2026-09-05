@@ -30,6 +30,20 @@ session. Agent, project, and session IDs are opaque canonical IDs; display
 names are cosmetic. A second live conversation for the same agent must use an
 explicit different `agent_key`; it cannot take the active inbox silently.
 
+With the explicit project setting `codex_single_orchestrator: true`, a new
+Codex root conversation takes over the same stable inbox from its previous
+locally mapped session. Resume is optional; bootstrap loads saved handoff
+memory without importing the old native transcript. The native hook releases
+old claims and returns accepted requests to pending without acknowledging or
+completing them. Check existing effects before accepting them again.
+
+Only a root SessionStart on startup or explicit resume may transfer ownership.
+Compact, clear and prompt hooks cannot revive a superseded conversation.
+Interrupted transfers keep a local fence and pending termination for retry at
+the next SessionStart or late SessionEnd. Models must not bypass that fence by
+calling session_start or changing agent keys. The default parallel-conversation
+contract and other clients are unchanged.
+
 Sessions have a two-minute lease. An expired or ended session cannot work until
 a native hook reconciles it. Do not invent an ID or use `session_heartbeat` to
 revive it. A heartbeat represents native activity or a verified live process,

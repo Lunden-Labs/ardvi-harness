@@ -416,6 +416,42 @@ func osStateDir(t *testing.T) string {
 	return dir
 }
 
+func TestCodexBridgeDelayedStartExitsAfterHandover(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	dir := osStateDir(t)
+	key := mappingKey("codex", "old", "project")
+	if err := saveMapping(filepath.Join(dir, key+".json"), hookMapping{
+		ArdviSessionID: "ended", ProjectID: "project", Client: "codex",
+		NativeSessionID: "old", Superseded: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	polled := make(chan bool, 1)
+	mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		polled <- true
+		cancel()
+		http.Error(w, "ended session", http.StatusBadRequest)
+	}))
+	defer mcp.Close()
+	fake := newFakeCodexDaemon(t, true, "idle")
+	if err := runCodexBridge(ctx, []string{
+		"--session", "ended", "--project", "project", "--thread", "old",
+		"--socket", fake.socket, "--url", mcp.URL,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-polled:
+		t.Fatal("delayed bridge polled after its mapping was superseded")
+	default:
+	}
+	if ctx.Err() != nil {
+		t.Fatal("fenced bridge did not exit on its own")
+	}
+}
+
 func assertJSONEqual(t *testing.T, got, want any) {
 	t.Helper()
 	gotJSON, err := json.Marshal(got)

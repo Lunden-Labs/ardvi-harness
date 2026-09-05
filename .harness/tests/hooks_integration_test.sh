@@ -44,6 +44,59 @@ HARNESS_REPO_ROOT="$fresh" bash "$fresh/.harness/scripts/bootstrap.sh" >/dev/nul
 [[ "$before_claude" == "$(sha256sum "$fresh/.claude/settings.json")" ]]
 [[ "$before_codex" == "$(sha256sum "$fresh/.codex/hooks.json")" ]]
 
+# Explicit project policy survives regeneration and affects only Codex startup.
+python3 - "$fresh/.ardvi/project.json" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+value = json.loads(path.read_text())
+value["codex_single_orchestrator"] = True
+path.write_text(json.dumps(value) + "\n")
+PY
+HARNESS_REPO_ROOT="$fresh" python3 "$fresh/.harness/scripts/project_config.py" >/dev/null
+grep -Fq 'ardvi hook session-start --client codex --single-orchestrator' "$fresh/.codex/hooks.json"
+! grep -Fq -- '--single-orchestrator' "$fresh/.claude/settings.json"
+before_codex="$(sha256sum "$fresh/.codex/hooks.json")"
+before_identity="$(sha256sum "$fresh/.ardvi/project.json")"
+HARNESS_REPO_ROOT="$fresh" bash "$fresh/.harness/scripts/bootstrap.sh" >/dev/null
+[[ "$before_codex" == "$(sha256sum "$fresh/.codex/hooks.json")" ]]
+[[ "$before_identity" == "$(sha256sum "$fresh/.ardvi/project.json")" ]]
+python3 - "$fresh" <<'PY'
+import json, pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+events = json.loads((root / '.codex/hooks.json').read_text())['hooks']
+for source in ('startup', 'resume', 'clear', 'compact'):
+    commands = [h['command'] for block in events['SessionStart']
+                if re.search(block['matcher'], source) for h in block['hooks']]
+    assert len(commands) == 1, (source, commands)
+    assert ('--single-orchestrator' in commands[0]) == (source in ('startup', 'resume'))
+for event, blocks in events.items():
+    if event != 'SessionStart':
+        assert all('--single-orchestrator' not in h['command'] for b in blocks for h in b['hooks'])
+PY
+
+# Reject invalid opt-ins before writing client files; false removes the flag.
+python3 - "$fresh" <<'PY'
+import json, os, pathlib, subprocess, sys
+root = pathlib.Path(sys.argv[1])
+path = root / '.ardvi/project.json'
+value = json.loads(path.read_text())
+files = [root / p for p in ('.codex/hooks.json', '.codex/config.toml', '.mcp.json', '.claude/settings.json')]
+before = {p: p.read_bytes() for p in files}
+for invalid in ('true', 1, None, {}):
+    value['codex_single_orchestrator'] = invalid
+    path.write_text(json.dumps(value))
+    result = subprocess.run([sys.executable, str(root / '.harness/scripts/project_config.py')],
+                            env={**os.environ, 'HARNESS_REPO_ROOT': str(root)}, capture_output=True)
+    assert result.returncode != 0
+    assert b'codex_single_orchestrator must be a boolean' in result.stderr
+    assert before == {p: p.read_bytes() for p in files}
+value['codex_single_orchestrator'] = False
+path.write_text(json.dumps(value))
+subprocess.run([sys.executable, str(root / '.harness/scripts/project_config.py')],
+               env={**os.environ, 'HARNESS_REPO_ROOT': str(root)}, check=True, stdout=subprocess.DEVNULL)
+assert '--single-orchestrator' not in (root / '.codex/hooks.json').read_text()
+PY
+
 # A pre-existing .claude/settings.json with a foreign hook entry, an unrelated
 # event, and other top-level keys keeps all of it; a drifted ardvi entry is
 # repaired in place without disturbing the rest.
