@@ -10,8 +10,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -29,11 +32,12 @@ type hookStdin struct {
 // hookMapping is the per-(client, client session, project) file that ties a
 // native Codex/Claude session to its registered Ardvi session.
 type hookMapping struct {
-	ArdviSessionID string   `json:"ardvi_session_id"`
-	Name           string   `json:"name"`
-	ProjectID      string   `json:"project_id"`
-	Client         string   `json:"client"`
-	SeenIDs        []string `json:"seen_ids,omitempty"`
+	ArdviSessionID  string   `json:"ardvi_session_id"`
+	Name            string   `json:"name"`
+	ProjectID       string   `json:"project_id"`
+	Client          string   `json:"client"`
+	NativeSessionID string   `json:"native_session_id,omitempty"`
+	SeenIDs         []string `json:"seen_ids,omitempty"`
 }
 
 type hookMessage struct {
@@ -228,13 +232,23 @@ func hookSessionStart(out io.Writer, client, url string, in hookStdin) error {
 		if err = json.Unmarshal(raw, &session); err != nil {
 			return err
 		}
-		mapping = hookMapping{ArdviSessionID: session.ID, Name: name, ProjectID: projectID, Client: client}
+		mapping = hookMapping{ArdviSessionID: session.ID, Name: name, ProjectID: projectID, Client: client, NativeSessionID: in.SessionID}
+		if err = saveMapping(path, mapping); err != nil {
+			return err
+		}
+	} else if mapping.NativeSessionID == "" {
+		mapping.NativeSessionID = in.SessionID
 		if err = saveMapping(path, mapping); err != nil {
 			return err
 		}
 	}
 	fmt.Fprintf(out, "Ardvi MCP: this session is registered as name=%s session_id=%s (project %s). Use this session_id for message_send, message_ack, claim_* and session_end; do not call session_start again.\n",
 		mapping.Name, mapping.ArdviSessionID, mapping.ProjectID)
+	if client == "codex" {
+		if err = startCodexBridge(ctx, url, path, mapping); err != nil {
+			fmt.Fprintln(os.Stderr, "ardvi hook: start Codex bridge:", err)
+		}
+	}
 	return printUnread(ctx, out, url, path, &mapping)
 }
 
@@ -259,6 +273,86 @@ func hookPrompt(out io.Writer, client, url string, in hookStdin) error {
 	return printUnread(ctx, out, url, path, &mapping)
 }
 
+func startCodexBridge(ctx context.Context, url, mappingPath string, mapping hookMapping) error {
+	if os.Getenv("ARDVI_CODEX_BRIDGE_DISABLE") == "1" {
+		return nil
+	}
+	if _, err := resolveCodexSocket(ctx, ""); err != nil {
+		return nil
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	key := strings.TrimSuffix(filepath.Base(mappingPath), ".json")
+	logFile, err := os.OpenFile(filepath.Join(filepath.Dir(mappingPath), "bridge-"+key+".log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	defer logFile.Close()
+	command := exec.Command(executable, "codex-bridge",
+		"--session", mapping.ArdviSessionID,
+		"--project", mapping.ProjectID,
+		"--thread", mapping.NativeSessionID,
+		"--url", url,
+	)
+	command.Stdin = nil
+	command.Stdout = logFile
+	command.Stderr = logFile
+	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err = command.Start(); err != nil {
+		return err
+	}
+	return command.Process.Release()
+}
+
+func stopCodexBridge(dir string, mapping hookMapping) {
+	pidPath := filepath.Join(dir, "bridge-"+mappingKey("codex", mapping.NativeSessionID, mapping.ProjectID)+".pid")
+	file, err := os.OpenFile(pidPath, os.O_RDWR, 0600)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	if err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		return
+	} else if !errors.Is(err, syscall.EWOULDBLOCK) {
+		return
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 1 {
+		return
+	}
+	if !bridgeProcessMatches(pid, mapping) {
+		fmt.Fprintf(os.Stderr, "ardvi hook: refusing to stop unmatched bridge pid %d\n", pid)
+		return
+	}
+	if process, findErr := os.FindProcess(pid); findErr == nil {
+		if signalErr := process.Signal(syscall.SIGTERM); signalErr != nil {
+			fmt.Fprintln(os.Stderr, "ardvi hook: stop Codex bridge:", signalErr)
+		}
+	}
+}
+
+func bridgeProcessMatches(pid int, mapping hookMapping) bool {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		data, err = exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
+		if err != nil {
+			return false
+		}
+	}
+	command := strings.ReplaceAll(string(data), "\x00", " ")
+	return strings.Contains(command, " codex-bridge ") &&
+		strings.Contains(command, " --session "+mapping.ArdviSessionID+" ") &&
+		strings.Contains(command, " --project "+mapping.ProjectID+" ") &&
+		strings.Contains(command, " --thread "+mapping.NativeSessionID)
+}
+
 // hookSessionEnd ends the mapped Ardvi session and removes the mapping file
 // regardless of whether the server call succeeds, so a dead server never
 // leaves a stale mapping that would block re-registration on the next start.
@@ -275,6 +369,12 @@ func hookSessionEnd(client, url string, in hookStdin) error {
 	mapping, ok := loadMapping(path)
 	if !ok {
 		return nil
+	}
+	if client == "codex" {
+		if mapping.NativeSessionID == "" {
+			mapping.NativeSessionID = in.SessionID
+		}
+		stopCodexBridge(dir, mapping)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), hookHTTPTimeout)
 	defer cancel()
@@ -308,33 +408,52 @@ func toSet(ids []string) map[string]bool {
 // printNewMessages writes every message in messages not present in seen,
 // oldest first, and returns the ids that were newly printed. Shared by hook
 // prompt and the standalone ardvi inbox command so both use the same format.
-func printNewMessages(w io.Writer, sessionID string, messages []hookMessage, seen map[string]bool) []string {
+func printNewMessages(w io.Writer, sessionID string, messages []hookMessage, seen map[string]bool) ([]string, error) {
+	text, newIDs := formatNewMessages(sessionID, messages, seen)
+	_, err := io.WriteString(w, text)
+	return newIDs, err
+}
+
+func formatNewMessages(sessionID string, messages []hookMessage, seen map[string]bool) (string, []string) {
+	var out strings.Builder
 	var newIDs []string
 	for i := len(messages) - 1; i >= 0; i-- { // inbox_read is newest-first; print oldest-first
 		m := messages[i]
 		if seen[m.ID] {
 			continue
 		}
-		fmt.Fprintf(w, "Ardvi MCP message id=%s from=%s scope=%s thread=%s created=%s ack_required=%t\n%s\n\n",
+		fmt.Fprintf(&out, "Ardvi MCP message id=%s from=%s scope=%s thread=%s created=%s ack_required=%t\n%s\n\n",
 			m.ID, m.From, m.Scope, m.Thread, m.Created.Format(time.RFC3339), m.AckRequired, m.Body)
 		newIDs = append(newIDs, m.ID)
 	}
 	if len(newIDs) > 0 {
-		fmt.Fprintf(w, "Acknowledge with message_ack(session_id=%s, message_id=…) for each message above (ids: %s) and reply in the same thread when a reply is expected.\n",
+		fmt.Fprintf(&out, "Acknowledge with message_ack(session_id=%s, message_id=…) for each message above (ids: %s) and reply in the same thread when a reply is expected.\n",
 			sessionID, strings.Join(newIDs, ", "))
 	}
-	return newIDs
+	return out.String(), newIDs
 }
 
 func printUnread(ctx context.Context, out io.Writer, url, path string, mapping *hookMapping) error {
-	messages, err := fetchInbox(ctx, url, mapping.ProjectID, mapping.ArdviSessionID)
-	if err != nil {
-		return err
-	}
-	newIDs := printNewMessages(out, mapping.ArdviSessionID, messages, toSet(mapping.SeenIDs))
-	if len(newIDs) == 0 {
+	seenPath := filepath.Join(filepath.Dir(path), "inbox-"+mapping.ArdviSessionID+".json")
+	err := withSeen(seenPath, mapping.SeenIDs, func(seen map[string]bool) ([]string, error) {
+		messages, err := fetchInbox(ctx, url, mapping.ProjectID, mapping.ArdviSessionID)
+		if err != nil {
+			return nil, err
+		}
+		newIDs, err := printNewMessages(out, mapping.ArdviSessionID, messages, seen)
+		if err != nil {
+			return nil, err
+		}
+		if len(newIDs) > 0 {
+			mapping.SeenIDs = append(mapping.SeenIDs, newIDs...)
+			if err = saveMapping(path, *mapping); err != nil {
+				return nil, err
+			}
+		}
+		return newIDs, nil
+	})
+	if errors.Is(err, errSeenBusy) {
 		return nil
 	}
-	mapping.SeenIDs = append(mapping.SeenIDs, newIDs...)
-	return saveMapping(path, *mapping)
+	return err
 }

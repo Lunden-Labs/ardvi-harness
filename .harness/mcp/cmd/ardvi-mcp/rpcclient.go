@@ -21,8 +21,9 @@ func defaultMCPURL() string {
 }
 
 type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data"`
 }
 type rpcCallToolResult struct {
 	StructuredContent json.RawMessage `json:"structuredContent"`

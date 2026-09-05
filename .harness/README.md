@@ -49,7 +49,7 @@ or entry skills fail closed instead of being overwritten.
 
 ## Message delivery
 
-Three layers, from most to least automatic:
+Three complementary delivery layers:
 
 1. **Hooks (both clients).** `project_config.py` merges a `SessionStart`,
    `UserPromptSubmit`, and `SessionEnd` entry — identified by its `ardvi hook `
@@ -63,10 +63,38 @@ Three layers, from most to least automatic:
 2. **The `unread` piggyback.** Tool results from `message_send`, `message_ack`,
    and `claim_*` calls carry an `unread` field, so messages surface during
    ordinary MCP calls even between hook firings.
-3. **`ardvi inbox --follow` (Claude Code only).** Claude Code can arm a
+3. **Background delivery.** Claude Code can arm a
    persistent `Monitor` running `ardvi inbox --session <id> --follow` to catch
-   messages that arrive mid-turn. Codex has no long-running background task
-   primitive; it relies on layers 1 and 2.
+   messages that arrive mid-turn. For Codex, `SessionStart` starts a detached
+   `ardvi codex-bridge` process when the Codex app-server socket is available;
+   `SessionEnd` stops it. It polls the Ardvi inbox every 20 seconds and sends
+   labelled agent notifications through `turn/start`, waking an idle thread or
+   steering an active one. It skips subagents and unloaded threads; it never
+   resumes a thread. Non-steerable turns are retried on a later poll.
+
+The bridge discovers its Unix WebSocket socket with `codex app-server daemon
+version`; `--socket` overrides discovery. Its first frames are `initialize`
+and `initialized`, followed by `thread/read` before delivery. Notifications
+appear in the user-message transport role but explicitly identify themselves
+as Ardvi agent messages, not text typed by the user. Delivery does not acknowledge
+the message: the receiving agent still calls `message_ack`.
+
+There is one bridge per session, with a pidfile and `bridge-<key>.log` beside
+the hook mapping under `${XDG_STATE_HOME:-$HOME/.local/state}/ardvi/sessions`.
+Hooks, `inbox`, and the bridge share seen-message state. Transient connection
+errors are logged and retried with bounded backoff; a socket missing for five
+minutes stops the bridge. Set `ARDVI_CODEX_BRIDGE_DISABLE=1` before session
+start to opt out; hooks and MCP piggyback delivery remain available.
+
+To test a loaded native thread explicitly, substitute its IDs:
+
+```sh
+ardvi codex-bridge --session <ardvi-session-id> --project <project-uuid> --thread <native-thread-id> --once --text 'ARDVI BRIDGE TEST'
+```
+
+The native thread ID is the Codex `session_id` supplied to the session hook,
+not the Ardvi session ID. A successful one-shot test proves transport delivery,
+not idle wakeup; verify the latter with an inbox message while the thread is idle.
 
 `inbox_read` remains available for catching up on history; it is not the
 primary delivery path.

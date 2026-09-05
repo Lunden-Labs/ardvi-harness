@@ -23,6 +23,34 @@ done
 check_command codex optional
 check_command claude optional
 
+if [[ "${ARDVI_CODEX_BRIDGE_DISABLE:-}" == "1" ]]; then
+  echo "OPTIONAL Codex bridge disabled by ARDVI_CODEX_BRIDGE_DISABLE=1"
+elif command -v codex >/dev/null 2>&1; then
+  if python3 - <<'PY'
+import json
+import os
+import stat
+import subprocess
+import sys
+
+try:
+    result = subprocess.run(
+        ["codex", "app-server", "daemon", "version"],
+        capture_output=True, text=True, timeout=5, check=True,
+    )
+    path = json.loads(result.stdout)["socketPath"]
+    if not stat.S_ISSOCK(os.stat(path).st_mode):
+        sys.exit(1)
+except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+    sys.exit(1)
+PY
+  then
+    echo "OK       Codex app-server daemon and bridge socket"
+  else
+    echo "OPTIONAL Codex bridge unavailable (app-server daemon or socket missing)"
+  fi
+fi
+
 if docker compose version >/dev/null 2>&1; then
   echo "OK       Docker Compose"
 else

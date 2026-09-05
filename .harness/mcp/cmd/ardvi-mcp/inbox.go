@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -60,21 +61,64 @@ func runInboxLoop(out io.Writer, args []string, sleep func(time.Duration)) error
 }
 
 func inboxOnce(out io.Writer, url, project, session, seenPath string) error {
-	seen, err := loadSeen(seenPath)
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), hookHTTPTimeout)
-	defer cancel()
-	messages, err := fetchInbox(ctx, url, project, session)
-	if err != nil {
-		return err
-	}
-	newIDs := printNewMessages(out, session, messages, toSet(seen))
-	if len(newIDs) == 0 {
+	err := withSeen(seenPath, nil, func(seen map[string]bool) ([]string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), hookHTTPTimeout)
+		defer cancel()
+		messages, err := fetchInbox(ctx, url, project, session)
+		if err != nil {
+			return nil, err
+		}
+		return printNewMessages(out, session, messages, seen)
+	})
+	if errors.Is(err, errSeenBusy) {
 		return nil
 	}
-	return saveSeen(seenPath, append(seen, newIDs...))
+	return err
+}
+
+var errSeenBusy = errors.New("seen state busy")
+
+func withSeen(path string, legacy []string, fn func(map[string]bool) ([]string, error)) error {
+	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return errSeenBusy
+		}
+		return err
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	ids, err := loadSeen(path)
+	if err != nil {
+		return err
+	}
+	seen := toSet(ids)
+	changed := false
+	for _, id := range legacy {
+		if !seen[id] {
+			ids = append(ids, id)
+			seen[id] = true
+			changed = true
+		}
+	}
+	newIDs, err := fn(seen)
+	if err != nil {
+		return err
+	}
+	for _, id := range newIDs {
+		if !seen[id] {
+			ids = append(ids, id)
+			seen[id] = true
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return saveSeen(path, ids)
 }
 
 type seenIDs struct {
