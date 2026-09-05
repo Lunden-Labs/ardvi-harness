@@ -93,6 +93,12 @@ ardvi update           # Update the shared service and skill catalogs
 make update            # Refresh this project's managed harness files
 ```
 
+For a host CLI upgrade, rerun `install.sh` from the new release archive, then
+refresh each project's managed integration. `ardvi update` updates the shared
+service and catalog; it does not replace the host executable. Back up the data
+volume before moving from a pre-Fabric release. The next native hook replaces
+an outdated Codex bridge for the same thread.
+
 Before ending a session, ask the agent:
 
 ```text

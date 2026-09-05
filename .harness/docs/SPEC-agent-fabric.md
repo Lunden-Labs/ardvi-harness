@@ -125,9 +125,21 @@ reported separately from deterministic hook/MCP simulations.
 
 Verification: all Go packages pass race tests, vet and build; bootstrap, hooks,
 writing, copy, harness update, installer path, Make and catalog fixtures pass.
-The independent final correctness reviewer hit its runtime usage limit; the
-primary agent completed the review and added regressions for discovered faults.
-No running service was replaced and no native client smoke test is claimed.
+The initial independent reviewer hit its runtime usage limit; the primary
+completed that review. The final retention and bridge changes received focused
+independent reviews and regression coverage for the resulting corrections.
+Live local validation on 2026-09-05 used Codex 0.153.4 and Claude Code 2.1.261:
+four projects discovered one another, all eight diagnostic requests completed,
+Codex bridge delivery worked, and Claude confirmed an isolated idle wake through
+its Stop/asyncRewake hook without a helper Monitor. Native client crashes and
+restarts were simulated separately; this is not a claim of live crash testing.
+An old Codex bridge survived the original host update; native reconciliation now
+checks binary identity and replaces the matching outdated adapter.
+
+History admission now protects unfinished/direct pending work, retains modern
+shared informational messages for 30 days, and retains evicted idempotency keys
+for another 30 days (10,000 per-origin receipts). Bootstrap warns at 80% pressure.
+Request acceptance reserves result capacity before allowing work to begin.
 
 ## Follow-up outside this local implementation
 
@@ -136,8 +148,5 @@ No running service was replaced and no native client smoke test is claimed.
   the automated baseline.
 - Add authenticated host/session binding before any remote deployment. The
   committed project UUID is deliberately not a credential.
-- Project/broadcast messages have no frozen recipient set and remain pending
-  for quota purposes. Add explicit shared-history retention if this reaches
-  the per-project limit; never silently discard pending direct requests.
 - Back up the state volume before release migration. Older service binaries do
   not understand Fabric records and must not rewrite an upgraded snapshot.

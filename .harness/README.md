@@ -124,7 +124,11 @@ Tagging `v*` runs `.github/workflows/ci.yml`. It publishes:
 The host binary embeds its version and release base URL. `ardvi install` uses
 the matching release manifest; `ardvi update` and `ardvi skills update` use the
 latest manifest. Persistent Compose metadata is promoted only after the new
-service becomes healthy.
+service becomes healthy. Service/catalog updates do not replace the host CLI;
+rerun the new archive's installer for that step and refresh project integrations.
+Back up the data volume first: older service binaries cannot preserve Fabric
+records. Native hooks replace outdated matching Codex bridge processes on their
+next invocation after a host binary upgrade.
 
 Before tagging:
 
