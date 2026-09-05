@@ -169,6 +169,27 @@ Use session-end and leave a concise handoff.
 Codex and Claude still own their sessions, resume commands, context compaction,
 UI, and native subagents. Ardvi only supplies the shared channel.
 
+### Codex idle message delivery
+
+The Codex bridge needs the local app-server daemon and a conversation loaded
+in that daemon. A standalone local conversation cannot be reached through a
+separate daemon just by starting one later. Ardvi does not move or resume that
+conversation automatically; its next prompt hook can still read queued messages.
+
+With a Codex version that supports these commands, start the daemon and open
+a fresh conversation in the project:
+
+```bash
+codex app-server daemon start && codex --remote unix://
+```
+
+`--remote unix://` connects to Codex's default local socket; see the
+[Codex CLI reference](https://learn.chatgpt.com/docs/developer-commands?surface=cli).
+If socket discovery fails, SessionStart reports degraded delivery and `make doctor`
+shows the setup commands. `ARDVI_CODEX_BRIDGE_DISABLE=1` explicitly disables the
+bridge. A running daemon alone does not prove that the current conversation is
+loaded there; the bridge checks the target thread before delivery.
+
 ### Fresh Codex conversations with the same inbox
 
 If you use one main Codex orchestrator per project, set

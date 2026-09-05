@@ -323,6 +323,9 @@ func hookSessionStartLocked(out io.Writer, client, url string, in hookStdin, ann
 	if client == "codex" {
 		if err = startCodexBridge(ctx, url, path, mapping); err != nil {
 			fmt.Fprintln(os.Stderr, "ardvi hook: start Codex bridge:", err)
+			if announce || changed {
+				fmt.Fprintf(out, "Ardvi Codex delivery degraded: %v. Idle notifications are unavailable; queued messages remain available through MCP and the next prompt hook. For daemon-backed delivery, the user can start `codex app-server daemon start` and open a fresh conversation with `codex --remote unix://`. Do not resume or migrate this conversation automatically.\n", err)
+			}
 		}
 	}
 	if announce {
@@ -373,7 +376,7 @@ func startCodexBridge(ctx context.Context, url, mappingPath string, mapping hook
 		return nil
 	}
 	if _, err := resolveCodexSocket(ctx, ""); err != nil {
-		return nil
+		return err
 	}
 	executable, err := os.Executable()
 	if err != nil {

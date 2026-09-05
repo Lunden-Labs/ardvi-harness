@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.1] - 2026-09-05
+
+### Fixed
+
+- Codex startup now reports degraded idle delivery when its app-server daemon
+  or socket is unavailable. Doctor explains how to open a fresh daemon-backed
+  conversation. Queued messages remain available through MCP and prompt hooks;
+  Ardvi does not automatically move or resume an existing conversation.
+
 ## [0.5.0] - 2026-09-05
 
 ### Added
