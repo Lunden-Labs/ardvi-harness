@@ -37,30 +37,37 @@ type Session struct {
 	LeaseExpires    time.Time `json:"lease_expires,omitempty"`
 }
 type Message struct {
-	ID                string    `json:"id"`
-	Project           string    `json:"project"`
-	Scope             string    `json:"scope"`
-	From              string    `json:"from"`
-	To                string    `json:"to,omitempty"`
-	Thread            string    `json:"thread_id"`
-	Body              string    `json:"body"`
-	AckRequired       bool      `json:"ack_required,omitempty"`
-	Acked             []string  `json:"acked_by,omitempty"`
-	Created           time.Time `json:"created"`
-	FromAgentID       string    `json:"from_agent_id,omitempty"`
-	ToAgentID         string    `json:"to_agent_id,omitempty"`
-	ToProjectID       string    `json:"to_project_id,omitempty"`
-	ToSessionID       string    `json:"to_session_id,omitempty"`
-	SpaceID           string    `json:"space_id,omitempty"`
-	Kind              string    `json:"kind,omitempty"`
-	CorrelationID     string    `json:"correlation_id,omitempty"`
-	IdempotencyKey    string    `json:"idempotency_key,omitempty"`
-	AuthorizationRef  string    `json:"authorization_ref,omitempty"`
-	Status            string    `json:"status,omitempty"`
-	AcceptedBy        string    `json:"accepted_by,omitempty"`
-	AcceptanceExpires time.Time `json:"acceptance_expires,omitempty"`
-	AcceptanceToken   string    `json:"acceptance_token,omitempty"`
-	ResultMessageID   string    `json:"result_message_id,omitempty"`
+	ID                string              `json:"id"`
+	Project           string              `json:"project"`
+	Scope             string              `json:"scope"`
+	From              string              `json:"from"`
+	To                string              `json:"to,omitempty"`
+	Thread            string              `json:"thread_id"`
+	Body              string              `json:"body"`
+	AckRequired       bool                `json:"ack_required,omitempty"`
+	Acked             []string            `json:"acked_by,omitempty"`
+	Created           time.Time           `json:"created"`
+	FromAgentID       string              `json:"from_agent_id,omitempty"`
+	ToAgentID         string              `json:"to_agent_id,omitempty"`
+	ToProjectID       string              `json:"to_project_id,omitempty"`
+	ToSessionID       string              `json:"to_session_id,omitempty"`
+	SpaceID           string              `json:"space_id,omitempty"`
+	Kind              string              `json:"kind,omitempty"`
+	CorrelationID     string              `json:"correlation_id,omitempty"`
+	IdempotencyKey    string              `json:"idempotency_key,omitempty"`
+	AuthorizationRef  string              `json:"authorization_ref,omitempty"`
+	Status            string              `json:"status,omitempty"`
+	AcceptedBy        string              `json:"accepted_by,omitempty"`
+	AcceptanceExpires time.Time           `json:"acceptance_expires,omitempty"`
+	AcceptanceToken   string              `json:"acceptance_token,omitempty"`
+	ResultMessageID   string              `json:"result_message_id,omitempty"`
+	Delivery          map[string]Delivery `json:"delivery,omitempty"`
+}
+type Delivery struct {
+	Status    string    `json:"status"`
+	Reason    string    `json:"reason,omitempty"`
+	SessionID string    `json:"session_id,omitempty"`
+	Updated   time.Time `json:"updated"`
 }
 type Claim struct {
 	Resource string    `json:"resource"`
@@ -344,6 +351,29 @@ func acknowledged(m Message, session Session) bool {
 	return false
 }
 
+func deliveryRecipient(m Message, session Session) string {
+	if m.ToAgentID != "" {
+		return "agent:" + m.ToAgentID
+	}
+	if m.ToProjectID != "" {
+		return "project:" + m.ToProjectID
+	}
+	if m.ToSessionID != "" {
+		return "session:" + m.ToSessionID
+	}
+	if m.To != "" && m.To != "*" {
+		return "session:" + m.To
+	}
+	return "session:" + session.ID
+}
+
+func pendingDelivery(m *Message, session Session, now time.Time) {
+	if (m.To == "" || m.To == "*") && m.ToAgentID == "" && m.ToProjectID == "" && m.ToSessionID == "" {
+		return
+	}
+	m.Delivery = map[string]Delivery{deliveryRecipient(*m, session): {Status: "pending", Updated: now}}
+}
+
 func (s *Store) Send(project, scope, from, to, thread, body string, ack bool) (Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -369,8 +399,9 @@ func (s *Store) Send(project, scope, from, to, thread, body string, ack bool) (M
 	if v.Thread == "" {
 		v.Thread = v.ID
 	}
+	pendingDelivery(&v, s.state.Sessions[from], v.Created)
 	s.state.Messages = append(s.state.Messages, v)
-	return v, s.commit()
+	return cloneMessage(v), s.commit()
 }
 func (s *Store) Inbox(project, session string, limit int) ([]Message, error) {
 	s.mu.Lock()

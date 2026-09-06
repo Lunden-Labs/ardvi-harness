@@ -476,6 +476,7 @@ func (s *Store) sendMessageLocked(project string, in SendInput) (Message, error)
 	if message.Thread == "" {
 		message.Thread = message.ID
 	}
+	pendingDelivery(&message, s.state.Sessions[in.SessionID], now)
 	s.state.Messages = append(s.state.Messages, message)
 	return cloneMessage(message), s.commit()
 }
@@ -488,7 +489,69 @@ func sameSend(message Message, in SendInput) bool {
 
 func cloneMessage(message Message) Message {
 	message.Acked = append([]string(nil), message.Acked...)
+	if message.Delivery != nil {
+		delivery := make(map[string]Delivery, len(message.Delivery))
+		for recipient, receipt := range message.Delivery {
+			delivery[recipient] = receipt
+		}
+		message.Delivery = delivery
+	}
 	return message
+}
+
+// Delivery records a transport receipt without acknowledging or changing work state.
+func (s *Store) Delivery(project, session string, messageIDs []string, status, reason string) ([]Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.validSession(project, session) {
+		return nil, errors.New("active session not found")
+	}
+	if len(messageIDs) == 0 || len(messageIDs) > 100 {
+		return nil, errors.New("message_ids must contain 1 to 100 ids")
+	}
+	if status != "delivered" && status != "undeliverable" {
+		return nil, errors.New("status must be delivered or undeliverable")
+	}
+	if status == "undeliverable" && strings.TrimSpace(reason) == "" {
+		return nil, errors.New("reason is required for undeliverable status")
+	}
+	if err := validateText("reason", reason, 1024); err != nil {
+		return nil, err
+	}
+	owner := s.state.Sessions[session]
+	indexes := make([]int, 0, len(messageIDs))
+	for _, id := range messageIDs {
+		found := -1
+		for i := range s.state.Messages {
+			message := &s.state.Messages[i]
+			if message.ID == id {
+				if !s.messageVisible(*message, owner) || !addressed(*message, owner) {
+					return nil, errors.New("message is not addressed to this session")
+				}
+				found = i
+				break
+			}
+		}
+		if found < 0 {
+			return nil, errors.New("message not found")
+		}
+		indexes = append(indexes, found)
+	}
+	now := s.now().UTC()
+	out := make([]Message, 0, len(indexes))
+	for _, i := range indexes {
+		message := &s.state.Messages[i]
+		if message.Delivery == nil {
+			message.Delivery = make(map[string]Delivery)
+		}
+		key := deliveryRecipient(*message, owner)
+		current := message.Delivery[key]
+		if current.Status != "delivered" {
+			message.Delivery[key] = Delivery{Status: status, Reason: reason, SessionID: session, Updated: now}
+		}
+		out = append(out, cloneMessage(*message))
+	}
+	return out, s.commit()
 }
 
 func (s *Store) PendingRequests(project, session string, limit int) ([]Message, error) {
@@ -611,6 +674,7 @@ func (s *Store) RequestComplete(project, session, messageID, token, result strin
 			ToProjectID: request.Project, SpaceID: request.SpaceID, Kind: "result", CorrelationID: request.CorrelationID,
 			AuthorizationRef: request.AuthorizationRef, Status: "pending",
 		}
+		pendingDelivery(&reply, s.state.Sessions[session], reply.Created)
 		request.Status, request.ResultMessageID = "completed", reply.ID
 		s.state.Messages = append(s.state.Messages, reply)
 		return cloneMessage(reply), s.commit()

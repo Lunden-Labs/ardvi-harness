@@ -49,7 +49,7 @@ func TestStreamableHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools.Tools) != 28 {
+	if len(tools.Tools) != 29 {
 		t.Fatalf("got %d tools", len(tools.Tools))
 	}
 	foundSkillsList := false

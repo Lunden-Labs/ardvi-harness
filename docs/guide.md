@@ -203,6 +203,21 @@ shows the setup commands. `ARDVI_CODEX_BRIDGE_DISABLE=1` explicitly disables the
 bridge. A running daemon alone does not prove that the current conversation is
 loaded there; the bridge checks the target thread before delivery.
 
+When a thread is `notLoaded`, the bridge reports `undeliverable` with a reason
+and keeps retrying queued messages. Stop its standalone client before reopening
+the same thread with `codex --remote unix:// resume THREAD_ID`. Calling
+`thread/resume` from the bridge could create another runtime for that thread.
+
+Read `thread_read` to check `messages[].delivery`: each recipient key maps to
+`status`, `reason`, `session_id`, and `updated`. Direct messages initially have
+`pending`; a bridge attempt records `delivered` or `undeliverable`. Retrying
+`message_send` with its original idempotency key also returns the current receipt.
+`delivered` means Codex accepted the input, not that the agent acknowledged or
+completed the request. A later failure cannot erase a successful receipt.
+Old messages may have no receipt until the updated bridge attempts delivery.
+Restart native clients after upgrading if their cached MCP schemas reject the
+new `delivery` field.
+
 ### Fresh Codex conversations with the same inbox
 
 If you use one main Codex orchestrator per project, set
