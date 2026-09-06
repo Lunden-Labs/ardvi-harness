@@ -196,6 +196,24 @@ func codexBridgePoll(ctx context.Context, options codexBridgeOptions, dir, key, 
 	}
 	session, mapping := codexBridgeSession(dir, key, options)
 	seenPath := filepath.Join(dir, "inbox-"+session+".json")
+	// Retry receipts without injecting an already accepted turn a second time.
+	receiptPath := filepath.Join(dir, "delivery-"+key+".json")
+	flushReceipt := func() error {
+		ids, err := loadSeen(receiptPath)
+		if err != nil || len(ids) == 0 {
+			return err
+		}
+		if err = reportCodexDelivery(ctx, options, session, ids, "delivered", ""); err != nil {
+			return err
+		}
+		if err = withSeen(seenPath, nil, func(map[string]bool) ([]string, error) { return ids, nil }); err != nil {
+			return err
+		}
+		return os.Remove(receiptPath)
+	}
+	if err := flushReceipt(); err != nil {
+		return err
+	}
 	var legacy []string
 	if mapping != nil {
 		legacy = mapping.SeenIDs
@@ -214,6 +232,14 @@ func codexBridgePoll(ctx context.Context, options codexBridgeOptions, dir, key, 
 		delivered, err := codexDeliver(ctx, socket, options.thread,
 			codexBridgeProvenance+"\n"+text)
 		if err != nil || !delivered {
+			reason := "Codex did not accept direct input"
+			if err != nil {
+				reason = err.Error()
+			}
+			log.Printf("ardvi codex-bridge: undeliverable thread=%s: %s; messages remain pending and will be retried", options.thread, reason)
+			if reportErr := reportCodexDelivery(ctx, options, session, newIDs, "undeliverable", reason); reportErr != nil {
+				return nil, reportErr
+			}
 			var callErr *codexCallError
 			if errors.As(err, &callErr) && (bytes.Contains(callErr.data, []byte("activeTurnNotSteerable")) || strings.Contains(callErr.message, "activeTurnNotSteerable")) {
 				fmt.Fprintf(os.Stderr, "ardvi codex-bridge: %v; retrying next poll\n", err)
@@ -221,11 +247,27 @@ func codexBridgePoll(ctx context.Context, options codexBridgeOptions, dir, key, 
 			}
 			return nil, err
 		}
+		if err := saveSeen(receiptPath, newIDs); err != nil {
+			// Preserve successful injection in seen state even if receipt storage fails.
+			log.Printf("ardvi codex-bridge: delivery receipt could not be saved: %v", err)
+		}
 		return newIDs, nil
 	})
 	if errors.Is(err, errSeenBusy) {
 		return nil
 	}
+	if err != nil {
+		return err
+	}
+	return flushReceipt()
+}
+
+func reportCodexDelivery(ctx context.Context, options codexBridgeOptions, session string, ids []string, status, reason string) error {
+	ctx, cancel := context.WithTimeout(ctx, hookHTTPTimeout)
+	defer cancel()
+	_, err := callTool(ctx, options.url, options.project, "message_delivery", map[string]any{
+		"session_id": session, "message_ids": ids, "status": status, "reason": reason,
+	})
 	return err
 }
 
@@ -532,9 +574,14 @@ func codexDeliver(ctx context.Context, socket, thread, text string) (bool, error
 		return false, err
 	}
 	if !read.Thread.CanAcceptDirectInput || read.Thread.Status.Type == "notLoaded" || read.Thread.ParentThreadID != "" {
-		log.Printf("ardvi codex-bridge: skipped thread=%s status=%s canAcceptDirectInput=%t subagent=%t",
+		reason := fmt.Sprintf("undeliverable: thread=%s status=%s canAcceptDirectInput=%t subagent=%t",
 			thread, read.Thread.Status.Type, read.Thread.CanAcceptDirectInput, read.Thread.ParentThreadID != "")
-		return false, nil
+		if read.Thread.Status.Type == "notLoaded" {
+			reason += "; this daemon does not own the running conversation. Stop the standalone client, then reopen this thread through codex --remote unix:// resume " + thread + "; automatic thread/resume could create a second runtime"
+		} else {
+			reason += "; use a root conversation that accepts direct input"
+		}
+		return false, errors.New(reason)
 	}
 	if err = client.call(ctx, "turn/start", map[string]any{
 		"threadId":    thread,

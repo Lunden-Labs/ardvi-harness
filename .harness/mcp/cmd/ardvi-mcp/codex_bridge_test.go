@@ -245,7 +245,7 @@ func TestCodexBridgeDiscoversSocketFromCodexDaemon(t *testing.T) {
 	t.Fatal("no turn/start received through discovered socket")
 }
 
-func TestCodexBridgeSkipsThreadsThatCannotAcceptInput(t *testing.T) {
+func TestCodexBridgeReportsThreadsThatCannotAcceptInput(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		accept bool
@@ -260,8 +260,8 @@ func TestCodexBridgeSkipsThreadsThatCannotAcceptInput(t *testing.T) {
 			fake := newFakeCodexDaemon(t, test.accept, test.status)
 			fake.parent = test.parent
 			delivered, err := codexDeliver(context.Background(), fake.socket, "native-thread", "do not send")
-			if err != nil {
-				t.Fatal(err)
+			if err == nil || !strings.Contains(err.Error(), "undeliverable") {
+				t.Fatalf("expected actionable delivery error, got %v", err)
 			}
 			if delivered {
 				t.Fatal("message unexpectedly delivered")
@@ -464,5 +464,107 @@ func assertJSONEqual(t *testing.T, got, want any) {
 	}
 	if string(gotJSON) != string(wantJSON) {
 		t.Fatalf("got %s\nwant %s", gotJSON, wantJSON)
+	}
+}
+
+func TestCodexBridgeDeliveryReceiptsAndSessionHandover(t *testing.T) {
+	for _, status := range []string{"active", "notLoaded"} {
+		t.Run(status, func(t *testing.T) {
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			fake := newFakeCodexDaemon(t, status == "active", status)
+			var receipts []map[string]any
+			mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request struct {
+					Params struct {
+						Name      string
+						Arguments map[string]any
+					}
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+				}
+				if request.Params.Arguments["session_id"] != "current-session" {
+					t.Errorf("stale session: %v", request.Params.Arguments)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				switch request.Params.Name {
+				case "inbox_read":
+					_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"messages":[{"id":"pending-id","body":"hello","created":"2026-09-05T01:02:03Z"}]}}}`))
+				case "message_delivery":
+					receipts = append(receipts, request.Params.Arguments)
+					_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{}}}`))
+				default:
+					t.Errorf("unexpected tool: %s", request.Params.Name)
+				}
+			}))
+			defer mcp.Close()
+			dir := osStateDir(t)
+			options := codexBridgeOptions{session: "old-session", project: "project", thread: "native-thread", url: mcp.URL}
+			key := mappingKey("codex", options.thread, options.project)
+			if err := saveMapping(filepath.Join(dir, key+".json"), hookMapping{ArdviSessionID: "current-session", ProjectID: options.project, Client: "codex", NativeSessionID: options.thread, Stable: true}); err != nil {
+				t.Fatal(err)
+			}
+			err := codexBridgePoll(context.Background(), options, dir, key, fake.socket)
+			if (err != nil) != (status == "notLoaded") {
+				t.Fatalf("poll error: %v", err)
+			}
+			if len(receipts) != 1 {
+				t.Fatalf("receipts: %#v", receipts)
+			}
+			want := "delivered"
+			if status == "notLoaded" {
+				want = "undeliverable"
+				if !strings.Contains(receipts[0]["reason"].(string), "codex --remote unix:// resume") {
+					t.Fatalf("missing remedy: %v", receipts)
+				}
+			}
+			if receipts[0]["status"] != want {
+				t.Fatalf("receipt: %#v", receipts[0])
+			}
+			seen, err := loadSeen(filepath.Join(dir, "inbox-current-session.json"))
+			if err != nil || (len(seen) == 1) != (status == "active") {
+				t.Fatalf("seen: %v %v", seen, err)
+			}
+		})
+	}
+}
+
+func TestCodexBridgeRetriesReceiptWithoutRedelivery(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	fake := newFakeCodexDaemon(t, true, "active")
+	reports := 0
+	mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct{ Params struct{ Name string } }
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		w.Header().Set("Content-Type", "application/json")
+		if request.Params.Name == "message_delivery" {
+			reports++
+			if reports == 1 {
+				http.Error(w, "temporarily unavailable", 503)
+				return
+			}
+			_, _ = w.Write([]byte(`{"result":{"structuredContent":{}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"result":{"structuredContent":{"messages":[{"id":"pending-id","body":"hello","created":"2026-09-05T01:02:03Z"}]}}}`))
+	}))
+	defer mcp.Close()
+	dir := osStateDir(t)
+	options := codexBridgeOptions{session: "session", project: "project", thread: "native-thread", url: mcp.URL}
+	key := mappingKey("codex", options.thread, options.project)
+	if err := codexBridgePoll(context.Background(), options, dir, key, fake.socket); err == nil {
+		t.Fatal("missing receipt failure")
+	}
+	if err := codexBridgePoll(context.Background(), options, dir, key, fake.socket); err != nil {
+		t.Fatal(err)
+	}
+	turns := 0
+	for _, m := range fake.received() {
+		if m["method"] == "turn/start" {
+			turns++
+		}
+	}
+	if turns != 1 || reports != 2 {
+		t.Fatalf("turns=%d reports=%d", turns, reports)
 	}
 }
