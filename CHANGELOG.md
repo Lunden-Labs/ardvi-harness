@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.1] - 2026-09-07
+
+### Added
+
+- `lets-go` gains an owner's-rules section on orchestration, explicit go, the
+  question widget, verifying state from the repository and stand, closing
+  holes in the same slice, and precedence between a project's own rules and
+  `tasks/NEXT.md`.
+- `session-end` gains steps to delegate closing edits to a cheap-model
+  subagent and to print the project's full task table; the handoff step now
+  names the pushed hash and what is closed, open, and next.
+
 ## [0.6.0] - 2026-09-05
 
 ### Added
