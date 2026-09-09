@@ -23,6 +23,9 @@ value = json.load(open(sys.argv[1]))
 hooks = value["hooks"]
 for event in ("SessionStart", "UserPromptSubmit", "SessionEnd"):
     assert event in hooks, f"missing event {event} in {sys.argv[1]}"
+expected_end_timeout = 3 if "/.codex/" in sys.argv[1] else 10
+assert all(h["timeout"] == expected_end_timeout
+           for block in hooks["SessionEnd"] for h in block["hooks"])
 PY
 done
 grep -Fq '"command": "ardvi hook session-start --client claude"' "$fresh/.claude/settings.json"
@@ -115,7 +118,12 @@ cat > "$foreign/.claude/settings.json" <<'EOF'
   }
 }
 EOF
-echo '{}' > "$foreign/.codex/hooks.json"
+cat > "$foreign/.codex/hooks.json" <<'EOF'
+{"hooks":{"SessionEnd":[{"hooks":[
+  {"type":"command","command":"echo foreign-end","timeout":2},
+  {"type":"command","command":"ardvi hook session-end --client codex","timeout":10}
+]}]}}
+EOF
 HARNESS_REPO_ROOT="$foreign" python3 "$foreign/.harness/scripts/project_config.py" >/dev/null
 grep -Fq '"command": "echo foreign-hook"' "$foreign/.claude/settings.json"
 grep -Fq '"command": "echo unrelated-event"' "$foreign/.claude/settings.json"
@@ -124,6 +132,14 @@ grep -Fq '"command": "ardvi hook session-start --client claude"' "$foreign/.clau
 grep -Fq '"command": "ardvi hook watch --client claude"' "$foreign/.claude/settings.json"
 ! grep -Fq '999' "$foreign/.claude/settings.json"
 grep -Fq '"timeout": 10' "$foreign/.claude/settings.json"
+python3 - "$foreign/.codex/hooks.json" <<'PYTEST'
+import json, sys
+entries = [h for b in json.load(open(sys.argv[1]))["hooks"]["SessionEnd"] for h in b["hooks"]]
+assert entries == [
+    {"type": "command", "command": "echo foreign-end", "timeout": 2},
+    {"type": "command", "command": "ardvi hook session-end --client codex", "timeout": 3},
+]
+PYTEST
 
 # Invalid JSON fails closed with a clear error and leaves every file untouched.
 broken="$workspace/broken"; mkdir -p "$broken/.codex"; git -C "$broken" init -q

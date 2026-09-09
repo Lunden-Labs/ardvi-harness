@@ -22,7 +22,7 @@ HOOK_EVENTS = {
     "codex": (
         ("SessionStart", "session-start", "startup|resume|clear|compact", {}),
         ("UserPromptSubmit", "prompt", None, {}),
-        ("SessionEnd", "session-end", None, {}),
+        ("SessionEnd", "session-end", None, {"timeout": 3}),
     ),
     "claude": (
         ("SessionStart", "session-start", "startup|resume|clear|compact|fork", {}),
