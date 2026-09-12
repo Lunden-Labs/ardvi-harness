@@ -1,5 +1,13 @@
 # Local Agent Fabric
 
+## OpenCode native identity
+
+OpenCode uses a client-scoped host binding (`client: "opencode"`) and an exact
+model/provider/variant tuple. A bridge validates the bound root session before
+renewing its Ardvi lease or queuing a native prompt. Each delivered Ardvi
+message has a deterministic native admission ID; it is marked seen only after
+native admission and the Ardvi delivery receipt both succeed.
+
 Status: user-approved product requirements, 2026-09-05.
 Supersedes the session-addressing and explicit-global opt-in portions of
 SPEC-native-agent-hub. ADR-0002's local container and native clients remain.

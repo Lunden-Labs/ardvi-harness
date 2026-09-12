@@ -8,7 +8,7 @@ export PROMPT PROMPT_FILE
 harness-help:
 	@echo "ARDVI harness"
 	@echo "  make harness-copy [TARGET=/path]  Copy harness into a Git root"
-	@echo "  make harness-init [PROMPT='...']  Initialize native Codex/Claude integration"
+	@echo "  make harness-init [PROMPT='...']  Initialize Codex, Claude, and OpenCode integration"
 	@echo "  make harness-update     Update CLI, project harness, MCP image, and skills"
 	@echo "  make harness-up         Ensure the machine-wide Ardvi MCP service is running"
 	@echo "  make harness-down       Stop the machine-wide service (affects all projects)"

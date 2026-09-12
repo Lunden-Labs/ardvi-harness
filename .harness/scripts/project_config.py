@@ -111,6 +111,88 @@ def claude(root: pathlib.Path, project_id: str) -> tuple[str, pathlib.Path, str]
     return status, path, json.dumps(value, indent=2) + "\n"
 
 
+def opencode(root: pathlib.Path, project_id: str) -> tuple[str, pathlib.Path, str]:
+    directory = root / ".opencode"
+    path = directory / "opencode.json"
+    jsonc = directory / "opencode.jsonc"
+    if directory.is_symlink() or path.is_symlink():
+        raise ValueError(f"OpenCode config must be a regular file: {path}")
+    if jsonc.exists() or jsonc.is_symlink():
+        raise ValueError(f"unsupported OpenCode JSONC config: {jsonc}")
+
+    desired = {
+        "type": "remote",
+        "url": URL,
+        "headers": {"X-Ardvi-Project": project_id},
+        "oauth": False,
+        "codemode": False,
+    }
+
+    def compatible(existing: object) -> bool:
+        return (
+            isinstance(existing, dict)
+            and all(existing.get(key) == value for key, value in desired.items() if key != "headers")
+            and isinstance(existing.get("headers"), dict)
+            and existing["headers"].get("X-Ardvi-Project") == project_id
+            and existing.get("disabled", False) is False
+        )
+
+    if path.exists():
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict):
+            raise ValueError(f"expected a JSON object in {path}")
+        mcp = value.setdefault("mcp", {})
+        if not isinstance(mcp, dict):
+            raise ValueError(f"expected mcp to be an object in {path}")
+        servers = mcp.setdefault("servers", {})
+        if not isinstance(servers, dict):
+            raise ValueError(f"expected mcp.servers to be an object in {path}")
+        existing = servers.get("ardvi")
+        if existing is not None and not compatible(existing):
+            raise ValueError(f"refusing to overwrite custom OpenCode mcp.servers.ardvi in {path}")
+        status = "current" if existing is not None else "updated"
+        if existing is None:
+            servers["ardvi"] = desired
+        return status, path, json.dumps(value, indent=2) + "\n"
+
+    root_json = root / "opencode.json"
+    root_jsonc = root / "opencode.jsonc"
+    if root_json.is_symlink():
+        raise ValueError(f"refusing to inspect symlinked root OpenCode config: {root_json}")
+    if root_jsonc.is_symlink():
+        raise ValueError(f"refusing to inspect symlinked root OpenCode config: {root_jsonc}")
+    root_servers = []
+    for candidate in (root_json, root_jsonc):
+        if not candidate.exists():
+            continue
+        original = candidate.read_text(encoding="utf-8")
+        if not re.search(r"(?i)ardvi", original):
+            continue
+        try:
+            value = json.loads(original)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"cannot inspect root OpenCode config {candidate}: {error}") from error
+        if not isinstance(value, dict):
+            raise ValueError(f"expected a JSON object in {candidate}")
+        mcp = value.get("mcp", {})
+        if not isinstance(mcp, dict):
+            raise ValueError(f"expected mcp to be an object in {candidate}")
+        servers = mcp.get("servers", {})
+        if not isinstance(servers, dict):
+            raise ValueError(f"expected mcp.servers to be an object in {candidate}")
+        existing = servers.get("ardvi")
+        if existing is not None:
+            root_servers.append((candidate, original, existing))
+    if root_servers:
+        if any(not compatible(existing) for _, _, existing in root_servers):
+            raise ValueError(f"refusing to shadow custom OpenCode mcp.servers.ardvi in {root_servers[0][0]}")
+        candidate, original, _ = root_servers[0]
+        return "current", candidate, original
+
+    value = {"mcp": {"servers": {"ardvi": desired}}}
+    return "created", path, json.dumps(value, indent=2) + "\n"
+
+
 def _is_ours(entry: object) -> bool:
     return (
         isinstance(entry, dict)
@@ -188,12 +270,15 @@ def main() -> int:
             raise ValueError("codex_single_orchestrator must be a boolean")
         codex_status, codex_path, codex_text = codex(root, value["id"])
         claude_status, claude_path, claude_text = claude(root, value["id"])
+        opencode_status, opencode_path, opencode_text = opencode(root, value["id"])
         claude_hooks_status, claude_hooks_path, claude_hooks_text = hooks(root, ".claude/settings.json", "claude")
         codex_hooks_status, codex_hooks_path, codex_hooks_text = hooks(root, ".codex/hooks.json", "codex", single_orchestrator)
         if not codex_path.exists() or codex_path.read_text(encoding="utf-8") != codex_text:
             atomic(codex_path, codex_text)
         if not claude_path.exists() or claude_path.read_text(encoding="utf-8") != claude_text:
             atomic(claude_path, claude_text)
+        if not opencode_path.exists() or opencode_path.read_text(encoding="utf-8") != opencode_text:
+            atomic(opencode_path, opencode_text)
         if not claude_hooks_path.exists() or claude_hooks_path.read_text(encoding="utf-8") != claude_hooks_text:
             atomic(claude_hooks_path, claude_hooks_text)
         if not codex_hooks_path.exists() or codex_hooks_path.read_text(encoding="utf-8") != codex_hooks_text:
@@ -201,6 +286,7 @@ def main() -> int:
         print(f"Project identity: {value['id']}")
         print(f"Codex MCP config: {codex_status}")
         print(f"Claude MCP config: {claude_status}")
+        print(f"OpenCode MCP config: {opencode_status}")
         print(f"Claude hooks: {claude_hooks_status}")
         print(f"Codex hooks: {codex_hooks_status}")
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:

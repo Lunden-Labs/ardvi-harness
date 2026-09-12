@@ -1,5 +1,13 @@
 # Harness maintainer guide
 
+## OpenCode native lifecycle
+
+Configure a host-owned `agents.json` entry with `client: "opencode"`, exact
+`model`, `model_provider`, optional `model_variant`, `agent_key`, and session
+name. Run `ardvi opencode --agent-key KEY` to create or reuse the one matching
+root OpenCode session in the current project. The launcher registers Ardvi
+before attaching OpenCode; delivery uses the verified native session only.
+
 The copied `.harness/` directory configures native Codex and Claude clients for
 one machine-wide Ardvi MCP container. The host CLI offers `ardvi codex` and
 `ardvi claude` shortcuts that replace themselves with the native client process.

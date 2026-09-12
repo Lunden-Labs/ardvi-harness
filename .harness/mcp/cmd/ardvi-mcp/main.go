@@ -21,7 +21,7 @@ import (
 )
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: ardvi codex [args...] | claude [args...] | install | init | update | service ensure|status|stop | skills list | hook <event> --client claude|codex | inbox --session ID | codex-bridge --session ID --project UUID --thread ID | serve")
+	fmt.Fprintln(os.Stderr, "usage: ardvi codex [args...] | opencode [args...] | claude [args...] | install | init | update | service ensure|status|stop | skills list | hook <event> --client claude|codex|opencode | inbox --session ID | codex-bridge --session ID --project UUID --thread ID | serve")
 }
 func localHost(value string) bool {
 	host, _, err := net.SplitHostPort(value)
@@ -129,7 +129,7 @@ func main() {
 	}
 	var err error
 	switch os.Args[1] {
-	case "codex", "claude":
+	case "codex", "opencode", "claude":
 		err = launchNativeClient(os.Args[1], os.Args[2:])
 	case "install":
 		err = installRuntime(os.Args[2:], false)
@@ -158,6 +158,10 @@ func main() {
 	case "codex-bridge":
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		err = runCodexBridge(ctx, os.Args[2:])
+		stop()
+	case "opencode-bridge":
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		err = runOpenCodeBridge(ctx, os.Args[2:])
 		stop()
 	case "serve":
 		err = serve(os.Args[2:])

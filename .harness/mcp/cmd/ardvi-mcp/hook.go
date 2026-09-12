@@ -29,6 +29,10 @@ type hookStdin struct {
 	Source        string `json:"source"`
 	// Set only by the explicit CLI option, never by native stdin or a message.
 	SingleOrchestrator bool `json:"-"`
+	// Set only by a trusted native launcher, never by hook stdin or a message.
+	NativeVerified bool   `json:"-"`
+	AgentKey       string `json:"-"`
+	SessionName    string `json:"-"`
 }
 
 // hookMapping is the per-(client, client session, project) file that ties a
@@ -89,8 +93,8 @@ func runHook(args []string) error {
 	if err := f.Parse(args[1:]); err != nil {
 		return err
 	}
-	if *client != "claude" && *client != "codex" {
-		return errors.New("--client must be claude or codex")
+	if *client != "claude" && *client != "codex" && *client != "opencode" {
+		return errors.New("--client must be claude, codex, or opencode")
 	}
 	if *single && (*client != "codex" || event != "session-start") {
 		return errors.New("--single-orchestrator requires hook session-start --client codex")
@@ -215,6 +219,9 @@ func hookSessionStartMode(out io.Writer, client, url string, in hookStdin, annou
 	// Serialize all native starts and prompt reconciliation for this identity.
 	// A per-thread lock alone lets an old prompt race a handover.
 	agentKey := os.Getenv("ARDVI_AGENT_KEY")
+	if in.NativeVerified {
+		agentKey = in.AgentKey
+	}
 	if agentKey == "" {
 		agentKey = "main"
 	}
@@ -238,6 +245,9 @@ func hookSessionStartLocked(out io.Writer, client, url string, in hookStdin, ann
 			return err
 		}
 		name := os.Getenv("ARDVI_SESSION_NAME")
+		if in.NativeVerified {
+			name = in.SessionName
+		}
 		if name == "" {
 			name = client + "-" + projectName
 		}
@@ -317,8 +327,10 @@ func hookSessionStartLocked(out io.Writer, client, url string, in hookStdin, ann
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), hookHTTPTimeout)
 	defer cancel()
-	if err = startNativeLeaseKeeper(client, url, path, in); err != nil {
-		fmt.Fprintln(os.Stderr, "ardvi hook: start lease keeper:", err)
+	if client != "opencode" {
+		if err = startNativeLeaseKeeper(client, url, path, in); err != nil {
+			fmt.Fprintln(os.Stderr, "ardvi hook: start lease keeper:", err)
+		}
 	}
 	if client == "codex" {
 		if err = startCodexBridge(ctx, url, path, mapping); err != nil {
@@ -335,7 +347,7 @@ func hookSessionStartLocked(out io.Writer, client, url string, in hookStdin, ann
 }
 
 func nativeThreadID(client string, in hookStdin) string {
-	if client == "codex" {
+	if client == "codex" || client == "opencode" {
 		return in.SessionID
 	}
 	return ""

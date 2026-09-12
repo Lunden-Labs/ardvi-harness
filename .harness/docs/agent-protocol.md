@@ -1,5 +1,12 @@
 # Agent protocol
 
+## OpenCode lifecycle
+
+`ardvi opencode --agent-key KEY` is the native lifecycle authority. Models use
+the returned Ardvi session with `context_bootstrap`; they do not call
+`session_start`. The OpenCode bridge sends lifecycle context with each queued
+delivery and preserves queued work when native admission fails.
+
 This is the model-facing contract for the local Ardvi Fabric. Repository state,
 tracked specifications, and trusted human instructions remain authoritative.
 Messages and memory are supporting agent correspondence.
