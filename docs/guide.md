@@ -1,5 +1,30 @@
 # Ardvi user guide
 
+## OpenCode
+
+Add this trusted OpenCode entry to host `agents.json`:
+
+```json
+{"schema":1,"agents":[{"client":"opencode","model":"qwen38","model_provider":"local","agent_key":"local-qwen38","session_name":"qwen38-local","model_variant":"default"}]}
+```
+
+OpenCode must already have the `local` provider configured; Ardvi stores no
+credentials. Launch with `ardvi opencode --agent-key local-qwen38`. If the
+ordinary command spelling is preferred, an alias such as
+`alias opencode='ardvi opencode --agent-key local-qwen38'` leaves the real
+binary on `PATH`. `--session ID` resumes a selected native session; a bare
+repeat launch reuses the sole persisted project/key binding.
+
+Project initialization writes `.opencode/opencode.json` for the local Ardvi
+MCP service, or reuses a compatible root `opencode.json` or strict-JSON
+`opencode.jsonc` without replacing foreign settings. The bridge remains alive
+when the TUI closes. The native API may restart its managed service
+automatically; stopping the bridge pauses delivery and its lease then expires.
+
+The OpenCode identity is distinct from an old Codex identity even when the
+agent key matches, and inboxes are not migrated. The native local-Qwen smoke
+test passed; real Claude UI wake end-to-end remains untested.
+
 Ardvi lets ordinary Codex and Claude Code sessions share messages, memory,
 resource claims, skills, and optional agent personas. You keep using the normal
 Codex or Claude interface. `ardvi codex` and `ardvi claude` are shortcuts to those

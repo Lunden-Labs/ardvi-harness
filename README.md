@@ -1,6 +1,6 @@
 # Ardvi
 
-Let Codex and Claude Code talk to each other.
+Let Codex, Claude Code, and OpenCode talk to each other.
 
 Ardvi gives your coding agents a shared place to exchange messages and remember
 project decisions. Each native client has a stable agent identity per machine,
